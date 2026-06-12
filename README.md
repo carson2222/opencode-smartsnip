@@ -61,6 +61,15 @@ brew install edouard-claude/tap/snip
 }
 ```
 
+Or, until the npm release / for development, install from source:
+
+```bash
+git clone https://github.com/carson2222/opencode-smartsnip.git
+mkdir -p ~/.config/opencode/plugins
+printf 'export { SmartSnipPlugin } from "%s/src/index"\n' "$PWD/opencode-smartsnip" \
+  > ~/.config/opencode/plugins/smartsnip.ts
+```
+
 If snip isn't on PATH the plugin disables itself with a warning — safe to ship in
 a shared repo config.
 

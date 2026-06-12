@@ -164,6 +164,21 @@ Suggestions:
   then it is auto-detected — no plugin config needed (scanUserFilters).
 ```
 
+### Closing the loop: /snip-filter
+
+When `discover` finds a worthwhile filter target, the bundled slash command automates
+authoring it:
+
+```bash
+bunx opencode-smartsnip install-command   # one-time; or --project for repo-local
+```
+
+Then in opencode: `/snip-filter python3` — the agent fetches snip's filter-authoring
+guide, writes the YAML to `~/.config/snip/filters/`, tests it with `snip -v`, and the
+plugin auto-detects it. Deliberately a **slash command, not a skill**: a skill's
+description is injected into every request (a permanent prompt tax for a once-a-month
+task), a command costs zero tokens until invoked.
+
 ## Why not the original opencode-snip?
 
 | | opencode-snip | smartsnip |

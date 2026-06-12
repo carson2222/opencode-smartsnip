@@ -6,7 +6,7 @@
  *   smartsnip discover   scan opencode's local DB for missed token savings
  *   smartsnip doctor     check the smartsnip/snip setup end to end
  */
-import { existsSync, readFileSync } from "node:fs"
+import { copyFileSync, existsSync, mkdirSync, readFileSync } from "node:fs"
 import { homedir } from "node:os"
 import { join } from "node:path"
 import { loadConfig, DEFAULT_DENY } from "../src/config"
@@ -170,6 +170,9 @@ function discover(days: number): void {
       )
     }
     console.log(`  then it is auto-detected — no plugin config needed (scanUserFilters).`)
+    console.log(
+      `  tip: \`smartsnip install-command\` adds a /snip-filter slash command that automates this.`,
+    )
   }
   console.log()
 }
@@ -234,6 +237,20 @@ async function doctor(): Promise<void> {
   console.log()
 }
 
+function installCommand(project: boolean): void {
+  const src = join(import.meta.dir, "..", "commands", "snip-filter.md")
+  const destDir = project
+    ? join(process.cwd(), ".opencode", "commands")
+    : join(homedir(), ".config", "opencode", "commands")
+  mkdirSync(destDir, { recursive: true })
+  const dest = join(destDir, "snip-filter.md")
+  copyFileSync(src, dest)
+  console.log(`installed /snip-filter command -> ${dest}`)
+  console.log(
+    "Slash commands cost zero prompt tokens until invoked — unlike a skill, which is listed in every request.",
+  )
+}
+
 const cmd = process.argv[2]
 if (cmd === "discover") {
   const daysArg = process.argv.indexOf("--days")
@@ -241,11 +258,15 @@ if (cmd === "discover") {
   discover(days)
 } else if (cmd === "doctor") {
   await doctor()
+} else if (cmd === "install-command") {
+  installCommand(process.argv.includes("--project"))
 } else {
   console.log(`smartsnip — opencode plugin companion CLI
 
 Usage:
-  smartsnip discover [--days N]   missed-savings report from your real opencode history (default 30 days)
-  smartsnip doctor                verify snip + plugin setup, reversibility, effective routing`)
+  smartsnip discover [--days N]      missed-savings report from your real opencode history (default 30 days)
+  smartsnip doctor                   verify snip + plugin setup, reversibility, effective routing
+  smartsnip install-command          install the /snip-filter slash command (zero prompt cost)
+                     [--project]     install into ./.opencode/commands instead of global config`)
   process.exit(cmd ? 1 : 0)
 }

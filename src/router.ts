@@ -8,7 +8,7 @@ import type { MatchTable } from "./filters"
 import type { SmartSnipConfig } from "./config"
 
 /** Shell builtins and shell-internal words that must never be wrapped. */
-const BUILTINS = new Set([
+export const BUILTINS = new Set([
   "cd", "source", ".", "export", "alias", "unalias", "unset", "set", "shopt",
   "eval", "exec", "echo", "printf", "true", "false", "pwd", "test", "[", "[[",
   "read", "wait", "trap", "pushd", "popd", "dirs", "jobs", "fg", "bg", "kill",

@@ -6,8 +6,12 @@
   "main": "src/index.ts",
   "types": "src/index.ts",
   "files": [
-    "src"
+    "src",
+    "bin"
   ],
+  "bin": {
+    "smartsnip": "bin/smartsnip.ts"
+  },
   "scripts": {
     "test": "bun test",
     "typecheck": "tsc --noEmit",

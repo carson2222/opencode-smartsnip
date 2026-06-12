@@ -13,6 +13,8 @@ export interface SmartSnipConfig {
   snipPath: string
   /** scan ~/.config/snip/filters/*.yaml for user-authored filters */
   scanUserFilters: boolean
+  /** show a once-per-session token-savings toast in the TUI */
+  toast: boolean
 }
 
 /**
@@ -28,6 +30,7 @@ const DEFAULTS: SmartSnipConfig = {
   allow: [],
   snipPath: "snip",
   scanUserFilters: true,
+  toast: true,
 }
 
 function readJson(path: string): Partial<SmartSnipConfig> | null {
@@ -55,6 +58,7 @@ export function loadConfig(projectDir?: string): SmartSnipConfig {
     if (typeof layer.enabled === "boolean") cfg.enabled = layer.enabled
     if (typeof layer.snipPath === "string") cfg.snipPath = layer.snipPath
     if (typeof layer.scanUserFilters === "boolean") cfg.scanUserFilters = layer.scanUserFilters
+    if (typeof layer.toast === "boolean") cfg.toast = layer.toast
     if (Array.isArray(layer.deny)) cfg.deny = [...new Set([...cfg.deny, ...layer.deny])]
     if (Array.isArray(layer.allow)) cfg.allow = [...new Set([...cfg.allow, ...layer.allow])]
   }

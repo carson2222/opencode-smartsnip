@@ -1,0 +1,39 @@
+# opencode-smartsnip
+
+> opencode plugin that routes shell commands through the snip CLI token filter.
+> Allowlist-driven: only commands matching snip's filter table are wrapped; everything
+> else passes through byte-identical. Validated on 23,917 real opencode commands.
+
+## What it does
+
+- Hooks `tool.execute.before` for the bash tool and rewrites wrap-eligible commands
+  from `git status` to `snip git status` before execution.
+- snip (https://github.com/edouard-claude/snip) filters the output 60-90% before it
+  enters the session.
+- Anything uncertain (heredocs, control flow, `$( )`, pipes-downstream, unknown
+  commands, builtins) passes through untouched.
+
+## For agents running under this plugin
+
+- Output of filtered commands is compressed but information-preserving.
+- If a command output contains `[full output: /path/to/file.log]`, the raw
+  uncompressed output is in that file — Read it instead of re-running the command.
+- Append `#nosnip` to any bash command to get its full raw output.
+- `git log --format=...`, `git status --porcelain` etc. are never filtered — explicit
+  format flags are respected.
+
+## Files
+
+- README.md — install, configuration, design
+- RESEARCH.md — evidence base: ecosystem survey, 23k-command corpus analysis
+- src/parser.ts — shell-aware top-level splitter
+- src/router.ts — wrap decision logic
+- src/filters.ts + src/builtin-filters.ts — allowlist from snip's filter table
+- bin/smartsnip.ts — `smartsnip discover` (missed-savings report from opencode
+  history) and `smartsnip doctor` (setup verification)
+
+## Config
+
+`~/.config/opencode/smartsnip.json` or `.opencode/smartsnip.json`:
+`{ enabled, deny[], allow[], snipPath, scanUserFilters, toast }`
+Default deny (data channels): ssh, curl, wget, psql, jq.

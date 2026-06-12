@@ -10,6 +10,7 @@ const config: SmartSnipConfig = {
   allow: [],
   snipPath: "snip",
   scanUserFilters: false,
+  toast: false,
 }
 const table = buildMatchTable(config)
 const rw = (cmd: string, cfg: SmartSnipConfig = config) => rewrite(cmd, table, cfg)

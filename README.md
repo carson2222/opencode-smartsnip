@@ -84,7 +84,8 @@ Optional. `~/.config/opencode/smartsnip.json` (global) and `.opencode/smartsnip.
   "deny": ["pnpm", "git diff"],
   "allow": ["ssh", "mytool"],
   "snipPath": "snip",
-  "scanUserFilters": true
+  "scanUserFilters": true,
+  "toast": true
 }
 ```
 
@@ -92,6 +93,8 @@ Optional. `~/.config/opencode/smartsnip.json` (global) and `.opencode/smartsnip.
 - `allow` — force wrap-eligibility. Wins over deny. Use it to re-enable default-denied
   commands or to register commands you wrote custom snip filters for.
 - `scanUserFilters` — auto-detect filters in `~/.config/snip/filters/` (default on).
+- `toast` — once per session, show a TUI toast with tokens saved (read from snip's
+  own tracking db). Set `false` to disable.
 
 ### Default deny list
 
@@ -112,10 +115,54 @@ git log -200 #nosnip
 Optionally add one line to your `AGENTS.md` so agents know about it:
 
 ```
-Shell output is auto-compressed via snip. Append `#nosnip` to a command when you need its full raw output.
+Shell output is auto-compressed via snip. Append `#nosnip` to a command when you need its full raw output. If output shows `[full output: <path>]`, Read that file instead of re-running.
 ```
 
 No other prompt overhead — the rewrite is transparent.
+
+## Reversible compression
+
+Aggressive filtering is only safe if the original is recoverable (the idea behind
+headroom's CCR). At this layer it comes for free by composition: snip's `tee` saves raw
+output to a rotating local store and appends a `[full output: /path.log]` marker to the
+filtered result — and the agent already has a `Read` tool. By default snip tees only on
+failures; for full reversibility set in `~/.config/snip/config.toml`:
+
+```toml
+[tee]
+mode = "always"   # every filtered output recoverable; 20-file rotation, 1MB cap
+```
+
+`smartsnip doctor` checks this for you.
+
+## CLI: discover & doctor
+
+```bash
+bunx opencode-smartsnip discover --days 30   # missed-savings report from YOUR real history
+bunx opencode-smartsnip doctor               # verify snip, reversibility, effective routing
+```
+
+`discover` replays your actual opencode bash history (read-only, local) through the
+router and reports: what's being filtered, what's denied, the biggest unfiltered
+token-burners, and which custom snip filters would pay off most. Real output:
+
+```
+smartsnip discover — last 14 days of opencode bash history
+2106 commands, ~893.5k tokens of raw output
+
+FILTERED by snip (working for you):
+  git                         418 calls    182.4k est. tokens
+  pnpm                        184 calls    164.7k est. tokens
+  ...
+
+NO FILTER (biggest missed savings first):
+  python3                      49 calls     73.2k est. tokens
+  agent-browser                83 calls     33.2k est. tokens
+
+Suggestions:
+  - write a snip filter for 'python3' (~5 min of YAML): …/snip/blob/master/SKILL.md
+  then it is auto-detected — no plugin config needed (scanUserFilters).
+```
 
 ## Why not the original opencode-snip?
 

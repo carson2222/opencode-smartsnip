@@ -97,13 +97,17 @@ Optional. `~/.config/opencode/smartsnip.json`, overridable per project in
 {
   "deny": ["pnpm", "git diff"],
   "allow": ["curl", "mytool"],
-  "toast": true
+  "toast": true,
+  "stripMimicry": true
 }
 ```
 
 - `deny` — never wrap these (`"cmd"` or `"cmd subcommand"`)
 - `allow` — force wrap-eligibility, wins over deny
 - `toast` — once per session, a small TUI toast with tokens saved
+- `stripMimicry` — strip stray `snip` prefixes the agent picked up from history
+  before re-deciding (default on). Turn off only if you wrap commands via snip
+  filter dirs that smartsnip doesn't scan
 
 `ssh`, `curl`, `wget`, `psql`, `jq` are denied by default. snip has filters for them,
 but they're blunt truncations and agents usually need that output verbatim. A truncated
@@ -161,8 +165,8 @@ it's where this project started. The failure modes are all known issues there:
 
 | | wrap everything | smartsnip |
 |---|---|---|
-| `snip: no filter for "X"` noise | [#16](https://github.com/VincentHardouin/opencode-snip/issues/16) | impossible by construction |
-| `snip snip` stacking | [#15](https://github.com/VincentHardouin/opencode-snip/issues/15) | idempotent per segment |
+| `snip: no filter for "X"` noise | [#16](https://github.com/VincentHardouin/opencode-snip/issues/16) | never from routing ¹ |
+| `snip snip` stacking | [#15](https://github.com/VincentHardouin/opencode-snip/issues/15) | normalized away per segment |
 | `jq '.a \| .b'` quoted pipes | [#8](https://github.com/VincentHardouin/opencode-snip/issues/8) | quote-aware parser |
 | `VAR=$(cmd)` corruption | [#22](https://github.com/VincentHardouin/opencode-snip/issues/22) | detected, passthrough |
 | heredocs | [#6](https://github.com/VincentHardouin/opencode-snip/issues/6) | detected, passthrough |
@@ -170,6 +174,13 @@ it's where this project started. The failure modes are all known issues there:
 
 The router is validated against 23k+ real bash commands from actual opencode sessions —
 65% of calls still get filtered, with none of the breakage.
+
+¹ One feedback loop is unavoidable at this layer: opencode stores the *rewritten*
+command, so agents start typing `snip` themselves — sometimes on things snip can't
+filter (`snip sed`, `… | snip python3`). smartsnip strips those stray prefixes back off
+before running (`stripMimicry`, on by default), which also collapses any stacking. For
+the rare command too complex to parse, set `quiet_no_filter = true` under `[display]` in
+`~/.config/snip/config.toml` as a backstop — `smartsnip doctor` checks for it.
 
 ## Development
 

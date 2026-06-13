@@ -203,10 +203,13 @@ async function doctor(): Promise<void> {
     )
   else warn("could not read snip tee mode")
   const quiet = cfgText.match(/display\.quiet_no_filter:\s*(\S+)/)?.[1]
-  if (quiet === "true") ok("quiet_no_filter=true")
+  if (quiet === "true") ok("quiet_no_filter=true — agent-mimicked snip prefixes stay silent")
   else
-    console.log(
-      "  i quiet_no_filter=false — harmless with allowlist routing (smartsnip never routes unfiltered commands)",
+    warn(
+      "quiet_no_filter=false — opencode persists rewritten commands, so agents start\n" +
+        "    typing `snip` themselves, sometimes where snip has no filter. smartsnip strips\n" +
+        "    most of that (stripMimicry), but set this as a backstop in ~/.config/snip/config.toml:\n" +
+        "    [display]\n    quiet_no_filter = true",
     )
 
   // config files

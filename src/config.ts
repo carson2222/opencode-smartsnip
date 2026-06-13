@@ -15,6 +15,14 @@ export interface SmartSnipConfig {
   scanUserFilters: boolean
   /** show a once-per-session token-savings toast in the TUI */
   toast: boolean
+  /**
+   * Strip stray `snip` prefixes off each segment before deciding to wrap.
+   * opencode persists the rewritten command into the agent's visible history,
+   * so agents start mimicking `snip` — sometimes on commands snip can't filter
+   * (`snip sed`, `... | snip python3`), which reintroduces "no filter" noise and
+   * stacking. Normalizing first makes wrapping idempotent and self-healing.
+   */
+  stripMimicry: boolean
 }
 
 /**
@@ -31,6 +39,7 @@ const DEFAULTS: SmartSnipConfig = {
   snipPath: "snip",
   scanUserFilters: true,
   toast: true,
+  stripMimicry: true,
 }
 
 function readJson(path: string): Partial<SmartSnipConfig> | null {
@@ -59,6 +68,7 @@ export function loadConfig(projectDir?: string): SmartSnipConfig {
     if (typeof layer.snipPath === "string") cfg.snipPath = layer.snipPath
     if (typeof layer.scanUserFilters === "boolean") cfg.scanUserFilters = layer.scanUserFilters
     if (typeof layer.toast === "boolean") cfg.toast = layer.toast
+    if (typeof layer.stripMimicry === "boolean") cfg.stripMimicry = layer.stripMimicry
     if (Array.isArray(layer.deny)) cfg.deny = [...new Set([...cfg.deny, ...layer.deny])]
     if (Array.isArray(layer.allow)) cfg.allow = [...new Set([...cfg.allow, ...layer.allow])]
   }

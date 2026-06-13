@@ -11,6 +11,7 @@ const config: SmartSnipConfig = {
   snipPath: "snip",
   scanUserFilters: false,
   toast: false,
+  stripMimicry: true,
 }
 const table = buildMatchTable(config)
 const rw = (cmd: string, cfg: SmartSnipConfig = config) => rewrite(cmd, table, cfg)
@@ -78,6 +79,39 @@ describe("idempotency (issue #15)", () => {
   test("rewrite is idempotent end-to-end", () => {
     const once = rw("git add . && git commit -m 'x'")
     expect(rw(once)).toBe(once)
+  })
+})
+
+describe("de-mimicry: strip stray snip the agent learned from persisted history", () => {
+  test("strips snip off a command snip can't filter (kills #16 noise at the source)", () => {
+    expect(rw("snip sed -n '1,5p' file")).toBe("sed -n '1,5p' file")
+    expect(rw("snip awk 'NR>1' f")).toBe("awk 'NR>1' f")
+  })
+
+  test("collapses agent-typed snip stacking (issue #15)", () => {
+    expect(rw("snip snip pnpm lint")).toBe("snip pnpm lint")
+    expect(rw("snip snip snip git status")).toBe("snip git status")
+  })
+
+  test("strips a stray snip on a pipe consumer", () => {
+    expect(rw("git log | snip python3 -c x")).toBe("snip git log | python3 -c x")
+  })
+
+  test("re-wraps a filterable command after stripping (still idempotent)", () => {
+    expect(rw("snip git status")).toBe("snip git status")
+    expect(rw("FOO=1 snip git log -1")).toBe("FOO=1 snip git log -1")
+  })
+
+  test("preserves snip on a command the plugin knows is filterable", () => {
+    const cfg = { ...config, allow: ["mytool"] }
+    const t = buildMatchTable(cfg)
+    expect(rewrite("snip mytool run", t, cfg)).toBe("snip mytool run")
+  })
+
+  test("disabled via stripMimicry:false → old skip-based idempotency", () => {
+    const cfg = { ...config, stripMimicry: false }
+    expect(rewrite("snip sed -n 1p f", table, cfg)).toBe("snip sed -n 1p f")
+    expect(rewrite("snip snip pnpm lint", table, cfg)).toBe("snip snip pnpm lint")
   })
 })
 

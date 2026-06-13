@@ -19,6 +19,24 @@ export const BUILTINS = new Set([
 /** Agent opt-out marker: a `#nosnip` comment anywhere disables wrapping for the call. */
 const OPT_OUT_RE = /(^|\s)#\s*nosnip\b/
 
+/**
+ * Peel stray `snip` prefixes (one or more) off a segment, preserving leading
+ * whitespace and any env-assignment prefix. Returns the segment unchanged when
+ * there is nothing to strip or it can't be analyzed. This is what lets wrapping
+ * be re-decided from a clean slate: `snip snip pnpm` → `pnpm`, `snip sed` → `sed`.
+ */
+function stripSnipPrefix(segment: string, snipPath: string): string {
+  const base = snipPath.includes("/") ? snipPath.split("/").pop()! : snipPath
+  const names = new Set(["snip", snipPath, base])
+  let cur = segment
+  for (;;) {
+    const info = analyzeSegment(cur)
+    if (!info || !names.has(info.head) || info.tokens.length < 2) return cur
+    // body starts at the head; drop the first token and its trailing whitespace
+    cur = info.leading + info.envPrefix + info.body.replace(/^\S+\s+/, "")
+  }
+}
+
 function isDenied(info: SegmentInfo, config: SmartSnipConfig): boolean {
   const allowHit =
     config.allow.includes(info.head) ||
@@ -103,13 +121,18 @@ export function rewrite(
       prevOp = piece.text
       return piece.text
     }
-    // segments downstream of a pipe receive stdin — wrapping is pointless/harmful
     const downstreamOfPipe = prevOp === "|" || prevOp === "|&"
     prevOp = null
-    if (downstreamOfPipe) return piece.text
 
-    const info = shouldWrap(piece.text, table, config)
-    if (!info) return piece.text
+    // normalize away mimicked/persisted snip prefixes, then decide fresh
+    const text = config.stripMimicry ? stripSnipPrefix(piece.text, config.snipPath) : piece.text
+
+    // segments downstream of a pipe receive stdin — wrapping is pointless/harmful,
+    // but a stray snip the agent typed there still gets stripped above
+    if (downstreamOfPipe) return text
+
+    const info = shouldWrap(text, table, config)
+    if (!info) return text
     return `${info.leading}${info.envPrefix}${config.snipPath} ${info.body}`
   })
 

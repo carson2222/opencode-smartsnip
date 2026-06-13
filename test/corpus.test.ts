@@ -23,6 +23,7 @@ const config: SmartSnipConfig = {
   snipPath: "snip",
   scanUserFilters: false,
   toast: false,
+  stripMimicry: true,
 }
 const table = buildMatchTable(config)
 

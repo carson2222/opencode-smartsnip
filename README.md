@@ -45,23 +45,27 @@ printf 'export { SmartSnipPlugin } from "%s/src/index"\n' "$PWD/opencode-smartsn
 
 ## Numbers
 
-One day of real work on a real project: 14 sessions, 354 bash calls, every recorded
-output replayed through the actual filters.
+One recent day of real work on a real project: ~600 bash calls, every recorded output
+replayed through the actual snip filters — no estimates, no re-runs.
 
 |                          |             |
 | ------------------------ | ----------- |
-| `git` output             | **−72%**    |
-| `pnpm` output            | **−48%**    |
-| all bash output          | −17%        |
+| `git` output             | **−70%**    |
+| `pnpm` output            | **−69%**    |
+| all bash output          | −11% ¹      |
 | context traffic avoided  | ~1M tokens  |
 
-Tool output gets re-sent on every turn that follows it (60× on average that day), so a
-token saved at the source stays saved for the rest of the session — and through
-compaction. The 17% came from a browser-automation-heavy day; check what it does for
-yours:
+¹ Conservative floor: only single-segment commands are credited; the 158 chained
+commands that day counted as zero savings. Real reduction is higher.
+
+Tool output gets re-sent on every turn that follows it, so a token saved at the source
+stays saved for the rest of the session — and through compaction. That multiplier is why
+an 11% cut on raw output erased ~1M tokens of cumulative context traffic in a single day.
+It was a browser-automation-heavy day; reproduce it on your own history:
 
 ```bash
-bunx opencode-smartsnip discover --days 30
+bun scripts/measure-savings.ts --days 7        # measured, replayed through snip
+bunx opencode-smartsnip discover --days 30     # estimated, plus what to filter next
 ```
 
 ## How routing works
@@ -174,6 +178,7 @@ bun install
 bun test                  # includes a replay of 656 sanitized real-world commands
 bun run typecheck
 bun run generate:filters  # re-sync allowlist from upstream snip filters
+bun run measure --days 7  # replay your real bash history through snip (the Numbers)
 ```
 
 ## License

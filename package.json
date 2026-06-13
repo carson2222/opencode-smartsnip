@@ -17,7 +17,11 @@
     "test": "bun test",
     "typecheck": "tsc --noEmit",
     "generate:filters": "bun scripts/generate-filters.ts",
+    "measure": "bun scripts/measure-savings.ts",
     "prepublishOnly": "bun run typecheck && bun test"
+  },
+  "engines": {
+    "bun": ">=1.0.0"
   },
   "keywords": [
     "opencode",

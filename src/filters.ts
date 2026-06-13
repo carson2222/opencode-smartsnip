@@ -10,6 +10,8 @@ export interface MatchEntry {
   subcommands: Set<string | null>
   /** exclude flags per subcommand key ("" for null) */
   excludeFlags: Map<string, string[]>
+  /** require flags per subcommand key ("" for null) — wrap only if ALL present */
+  requireFlags: Map<string, string[]>
 }
 
 export type MatchTable = Map<string, MatchEntry>
@@ -17,11 +19,12 @@ export type MatchTable = Map<string, MatchEntry>
 function addRule(table: MatchTable, rule: FilterRule): void {
   let entry = table.get(rule.command)
   if (!entry) {
-    entry = { subcommands: new Set(), excludeFlags: new Map() }
+    entry = { subcommands: new Set(), excludeFlags: new Map(), requireFlags: new Map() }
     table.set(rule.command, entry)
   }
   entry.subcommands.add(rule.subcommand)
   entry.excludeFlags.set(rule.subcommand ?? "", rule.excludeFlags)
+  if (rule.requireFlags?.length) entry.requireFlags.set(rule.subcommand ?? "", rule.requireFlags)
 }
 
 /** Scan user-authored snip filters so custom filters become wrap-eligible automatically. */

@@ -67,6 +67,17 @@ export function shouldWrap(
     }
   }
 
+  // honor snip's require_flags: wrap only if ALL required flags are present.
+  // NOTE: snip (≤0.15.0) checks require_flags against args[1:] only — a required
+  // flag in the first-argument slot is not seen (fixed on master). We mirror the
+  // stricter reading (tokens after the first argument), which is correct on
+  // 0.15.0 and merely conservative (safe passthrough) on fixed versions.
+  const requires = entry.requireFlags.get(subKey) ?? []
+  if (requires.length > 0) {
+    const flags = info.tokens.slice(2).filter((t) => t.startsWith("-")).map((t) => t.split("=")[0]!)
+    if (!requires.every((req) => flags.some((f) => f.startsWith(req)))) return null
+  }
+
   if (isDenied(info, config)) return null
   return info
 }

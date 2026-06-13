@@ -150,3 +150,30 @@ describe("config: deny / allow / opt-out", () => {
     expect(rw("git log -50 # nosnip")).toBe("git log -50 # nosnip")
   })
 })
+
+describe("require_flags honored (user filters like node --test)", () => {
+  const { extractMatchRules } = require("../src/filter-yaml")
+  const rule = extractMatchRules(
+    'name: "node-test"\nversion: 1\nmatch:\n  command: "node"\n  require_flags: ["--test"]\npipeline:\n  - action: "head"\n    n: 5\n',
+  )
+
+  test("yaml extraction picks up require_flags", () => {
+    expect(rule).toEqual({ command: "node", subcommand: null, excludeFlags: [], requireFlags: ["--test"] })
+  })
+
+  test("wraps only when required flag present", () => {
+    const t = buildMatchTable(config)
+    // simulate a scanned user filter
+    t.set("node", {
+      subcommands: new Set([null]),
+      excludeFlags: new Map([["", []]]),
+      requireFlags: new Map([["", ["--test"]]]),
+    })
+    expect(rewrite("node --import tsx --test app.test.ts", t, config)).toBe(
+      "snip node --import tsx --test app.test.ts",
+    )
+    expect(rewrite("node server.js", t, config)).toBe("node server.js")
+    // snip ≤0.15.0 cannot see a required flag in the first-arg slot — must not wrap
+    expect(rewrite("node --test app.test.ts", t, config)).toBe("node --test app.test.ts")
+  })
+})

@@ -8,12 +8,15 @@ export interface FilterRule {
   command: string
   subcommand: string | null
   excludeFlags: string[]
+  /** snip `match.require_flags`: only wrap when ALL of these flags are present. */
+  requireFlags?: string[]
 }
 
 export function extractMatchRules(yamlText: string): FilterRule | null {
   let command: string | null = null
   let subcommand: string | null = null
   const excludeFlags: string[] = []
+  const requireFlags: string[] = []
   let inMatch = false
   let listTarget: string[] | null = null
 
@@ -37,16 +40,18 @@ export function extractMatchRules(yamlText: string): FilterRule | null {
     } else if (line.startsWith("subcommand:")) {
       subcommand = unquote(line.slice("subcommand:".length))
       listTarget = null
-    } else if (line.startsWith("exclude_flags:")) {
-      const rest = line.slice("exclude_flags:".length).trim()
+    } else if (line.startsWith("exclude_flags:") || line.startsWith("require_flags:")) {
+      const key = line.startsWith("exclude_flags:") ? "exclude_flags:" : "require_flags:"
+      const target = key === "exclude_flags:" ? excludeFlags : requireFlags
+      const rest = line.slice(key.length).trim()
       if (rest.startsWith("[")) {
         for (const item of rest.replace(/^\[|\]$/g, "").split(",")) {
           const v = unquote(item)
-          if (v) excludeFlags.push(v)
+          if (v) target.push(v)
         }
         listTarget = null
       } else {
-        listTarget = excludeFlags
+        listTarget = target
       }
     } else if (line.startsWith("- ") && listTarget) {
       listTarget.push(unquote(line.slice(2)))
@@ -56,5 +61,5 @@ export function extractMatchRules(yamlText: string): FilterRule | null {
   }
 
   if (!command) return null
-  return { command, subcommand, excludeFlags }
+  return { command, subcommand, excludeFlags, ...(requireFlags.length ? { requireFlags } : {}) }
 }

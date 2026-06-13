@@ -20,7 +20,7 @@ export interface SmartSnipConfig {
 /**
  * Data-carrying channels denied by default: snip's filters for these are blunt
  * head-truncations, and an agent usually NEEDS this output verbatim
- * (API responses, remote command results, query rows). See RESEARCH.md.
+ * (API responses, remote command results, query rows).
  */
 export const DEFAULT_DENY = ["ssh", "curl", "wget", "psql", "jq"]
 

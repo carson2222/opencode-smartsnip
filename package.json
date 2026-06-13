@@ -1,7 +1,7 @@
 {
   "name": "opencode-smartsnip",
   "version": "0.1.0",
-  "description": "opencode plugin that routes shell commands through the snip token filter — allowlist-driven, shell-aware, configurable",
+  "description": "Cuts shell-output tokens in opencode. Wraps only what snip can filter — everything else runs byte-identical.",
   "type": "module",
   "main": "src/index.ts",
   "types": "src/index.ts",

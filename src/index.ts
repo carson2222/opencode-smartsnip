@@ -11,7 +11,7 @@ export { splitTopLevel, analyzeSegment } from "./parser"
 export { savingsSince, formatTokens } from "./stats"
 
 export const SmartSnipPlugin: Plugin = async ({ $, client, directory }) => {
-  // POSIX parser — PowerShell/native Windows is a non-goal for now (see TODO.md)
+  // POSIX parser — PowerShell/native Windows is a non-goal for now
   if (process.platform === "win32") return {}
 
   const config = loadConfig(directory)

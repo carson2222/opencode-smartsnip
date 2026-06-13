@@ -1,67 +1,38 @@
 # opencode-smartsnip
 
-opencode plugin that routes shell commands through [snip](https://github.com/edouard-claude/snip)
-to cut LLM token usage by 60–90% — **without breaking your commands**.
+Cuts shell-output tokens in opencode. Wraps only what [snip](https://github.com/edouard-claude/snip)
+can filter — everything else runs byte-identical.
 
-Existing snip plugins wrap *every* bash command. That causes stacked `snip snip snip` prefixes,
-broken `jq` pipes, mangled env assignments, "no filter" stderr noise that costs more tokens than
-it saves, and truncated SQL/API output your agent actually needed.
-
-smartsnip inverts the policy: **only commands snip can genuinely filter get wrapped.**
-Everything else passes through byte-identical.
-
-Validated against a corpus of **23,917 real bash commands** from real opencode sessions —
-allowlist routing still captures 63% of all tool-output volume while eliminating the entire
-bug surface of wrap-everything. See [RESEARCH.md](./RESEARCH.md) for the data.
-
-## How it works
-
-```
-agent runs: cd /x && git status && cat big.json | jq '.a | .b'
-                          │
-                          ▼ tool.execute.before
-smartsnip:  cd /x && snip git status && cat big.json | jq '.a | .b'
-            ─┬───    ─┬─────────────    ─┬──────────────────────────
-             │        │                  └ pipes & jq untouched
-             │        └ matches snip's git-status filter → wrapped
-             └ builtin → untouched
+```sh
+cd /x && git status && cat big.json | jq '.a | .b'        # what the agent sent
+cd /x && snip git status && cat big.json | jq '.a | .b'   # what actually runs
 ```
 
-The routing decisions, in order:
-
-1. `#nosnip` comment anywhere → entire command untouched (agent/user opt-out)
-2. Heredocs, control flow (`for`/`if`/`while`), `case`, unbalanced quotes → untouched
-3. Per top-level segment (split quote/paren/redirection-aware):
-   - shell builtins, subshells, segments after a `|` → untouched
-   - `$( )`, backticks, process substitution in segment → untouched
-   - already `snip`-prefixed → untouched (idempotent)
-   - head command + subcommand looked up in snip's own filter table
-     (131 built-in filters + your `~/.config/snip/filters/*.yaml`, auto-scanned)
-   - snip's `exclude_flags` honored (`git log --format=...` stays raw)
-   - deny/allow config applied
-4. Match → `ENV=... snip <command>`; anything uncertain → untouched
-
-**When in doubt, it does nothing.** A passthrough is always correct; a wrong wrap never is.
+snip strips the noise out of git/test/build output before it reaches the model.
+The hard part is knowing when wrapping is safe. Wrap everything and you get stacked
+`snip snip` prefixes, broken pipes, and truncated API responses. smartsnip parses each
+command and wraps only the segments that match snip's own filter table. When in doubt,
+it does nothing.
 
 ## Install
 
-1. Install snip:
-
 ```bash
 brew install edouard-claude/tap/snip
-# or: go install github.com/edouard-claude/snip/cmd/snip@latest
 ```
 
-2. Add the plugin to `~/.config/opencode/opencode.json`:
-
 ```json
+// ~/.config/opencode/opencode.json
 {
   "$schema": "https://opencode.ai/config.json",
   "plugin": ["opencode-smartsnip"]
 }
 ```
 
-Or, until the npm release / for development, install from source:
+That's it. No new tools, no prompt overhead. If snip isn't on PATH the plugin
+disables itself with a warning, so it's safe in a shared repo config.
+
+<details>
+<summary>Install from source instead</summary>
 
 ```bash
 git clone https://github.com/carson2222/opencode-smartsnip.git
@@ -70,142 +41,139 @@ printf 'export { SmartSnipPlugin } from "%s/src/index"\n' "$PWD/opencode-smartsn
   > ~/.config/opencode/plugins/smartsnip.ts
 ```
 
-If snip isn't on PATH the plugin disables itself with a warning — safe to ship in
-a shared repo config.
+</details>
+
+## Numbers
+
+One day of real work on a real project: 14 sessions, 354 bash calls, every recorded
+output replayed through the actual filters.
+
+|                          |             |
+| ------------------------ | ----------- |
+| `git` output             | **−72%**    |
+| `pnpm` output            | **−48%**    |
+| all bash output          | −17%        |
+| context traffic avoided  | ~1M tokens  |
+
+Tool output gets re-sent on every turn that follows it (60× on average that day), so a
+token saved at the source stays saved for the rest of the session — and through
+compaction. The 17% came from a browser-automation-heavy day; check what it does for
+yours:
+
+```bash
+bunx opencode-smartsnip discover --days 30
+```
+
+## How routing works
+
+```mermaid
+flowchart LR
+    A([bash command]) --> B{heredoc, loop,<br>unbalanced quotes?}
+    B -- yes --> P([run as-is])
+    B -- no --> C[split into<br>top-level segments]
+    C --> D{builtin, piped,<br>subshell, denied?}
+    D -- yes --> P
+    D -- no --> E{in snip's<br>filter table?}
+    E -- no --> P
+    E -- yes --> W([prefix with snip])
+```
+
+The allowlist comes from snip's own filters (131 built-in, plus anything you drop in
+`~/.config/snip/filters/`). `exclude_flags` and `require_flags` are honored, so
+`git log --format=...` stays raw. `#nosnip` anywhere in a command skips the whole thing.
+
+A wrong passthrough costs a few tokens. A wrong wrap breaks a command. The bias follows.
 
 ## Configuration
 
-Optional. `~/.config/opencode/smartsnip.json` (global) and `.opencode/smartsnip.json`
-(per project, merged on top):
+Optional. `~/.config/opencode/smartsnip.json`, overridable per project in
+`.opencode/smartsnip.json`:
 
 ```json
 {
-  "enabled": true,
   "deny": ["pnpm", "git diff"],
-  "allow": ["ssh", "mytool"],
-  "snipPath": "snip",
-  "scanUserFilters": true,
+  "allow": ["curl", "mytool"],
   "toast": true
 }
 ```
 
-- `deny` — never wrap these (`"cmd"` or `"cmd subcommand"`). Unioned across config layers.
-- `allow` — force wrap-eligibility. Wins over deny. Use it to re-enable default-denied
-  commands or to register commands you wrote custom snip filters for.
-- `scanUserFilters` — auto-detect filters in `~/.config/snip/filters/` (default on).
-- `toast` — once per session, show a TUI toast with tokens saved (read from snip's
-  own tracking db). Set `false` to disable.
+- `deny` — never wrap these (`"cmd"` or `"cmd subcommand"`)
+- `allow` — force wrap-eligibility, wins over deny
+- `toast` — once per session, a small TUI toast with tokens saved
 
-### Default deny list
+`ssh`, `curl`, `wget`, `psql`, `jq` are denied by default. snip has filters for them,
+but they're blunt truncations and agents usually need that output verbatim. A truncated
+API response forces a re-run, which costs more than it saves. `"allow": ["curl"]` brings
+any of them back.
 
-`ssh`, `curl`, `wget`, `psql`, `jq` are **not wrapped by default**, even though snip has
-filters for them. Those filters are blunt head-truncations, and agents usually need that
-output verbatim (API responses, remote results, query rows). Filtering test/build/lint/VCS
-noise saves tokens; truncating data channels forces re-runs. Re-enable any of them with
-`"allow": ["curl"]`.
+## Getting raw output back
 
-### Agent opt-out
-
-Any command containing a `#nosnip` comment is left untouched:
-
-```bash
-git log -200 #nosnip
-```
-
-Optionally add one line to your `AGENTS.md` so agents know about it:
-
-```
-Shell output is auto-compressed via snip. Append `#nosnip` to a command when you need its full raw output. If output shows `[full output: <path>]`, Read that file instead of re-running.
-```
-
-No other prompt overhead — the rewrite is transparent.
-
-## Reversible compression
-
-Aggressive filtering is only safe if the original is recoverable (the idea behind
-headroom's CCR). At this layer it comes for free by composition: snip's `tee` saves raw
-output to a rotating local store and appends a `[full output: /path.log]` marker to the
-filtered result — and the agent already has a `Read` tool. By default snip tees only on
-failures; for full reversibility set in `~/.config/snip/config.toml`:
+snip can tee the original to a local file and append `[full output: /path.log]` to the
+filtered result. The agent already has a Read tool, so nothing is ever lost. In
+`~/.config/snip/config.toml`:
 
 ```toml
 [tee]
-mode = "always"   # every filtered output recoverable; 20-file rotation, 1MB cap
+mode = "always"
 ```
 
-`smartsnip doctor` checks this for you.
+`smartsnip doctor` checks this, along with the rest of your setup.
 
-## CLI: discover & doctor
+One line in `AGENTS.md` makes agents use it well:
+
+```
+Shell output is auto-compressed. Append `#nosnip` to a command if you need raw output.
+If you see `[full output: <path>]`, Read that file instead of re-running.
+```
+
+## Finding what to filter next
 
 ```bash
-bunx opencode-smartsnip discover --days 30   # missed-savings report from YOUR real history
-bunx opencode-smartsnip doctor               # verify snip, reversibility, effective routing
+bunx opencode-smartsnip discover --days 30
 ```
 
-`discover` replays your actual opencode bash history (read-only, local) through the
-router and reports: what's being filtered, what's denied, the biggest unfiltered
-token-burners, and which custom snip filters would pay off most. Real output:
+Replays your real opencode bash history (read-only, local) through the router:
 
 ```
-smartsnip discover — last 14 days of opencode bash history
 2106 commands, ~893.5k tokens of raw output
 
-FILTERED by snip (working for you):
-  git                         418 calls    182.4k est. tokens
-  pnpm                        184 calls    164.7k est. tokens
-  ...
+FILTERED by snip:
+  git        418 calls   182.4k est. tokens
+  pnpm       184 calls   164.7k est. tokens
 
 NO FILTER (biggest missed savings first):
-  python3                      49 calls     73.2k est. tokens
-  agent-browser                83 calls     33.2k est. tokens
-
-Suggestions:
-  - write a snip filter for 'python3' (~5 min of YAML): …/snip/blob/master/SKILL.md
-  then it is auto-detected — no plugin config needed (scanUserFilters).
+  python3     49 calls    73.2k est. tokens
+  agent-browser 83 calls  33.2k est. tokens
 ```
 
-### Closing the loop: /snip-filter
+A snip filter is ~10 lines of YAML. `bunx opencode-smartsnip install-command` adds a
+`/snip-filter` command that writes and tests one for you — say `/snip-filter python3`
+and the new filter is picked up automatically.
 
-When `discover` finds a worthwhile filter target, the bundled slash command automates
-authoring it:
+## Why not wrap everything?
 
-```bash
-bunx opencode-smartsnip install-command   # one-time; or --project for repo-local
-```
+That's what [opencode-snip](https://github.com/VincentHardouin/opencode-snip) does, and
+it's where this project started. The failure modes are all known issues there:
 
-Then in opencode: `/snip-filter python3` — the agent fetches snip's filter-authoring
-guide, writes the YAML to `~/.config/snip/filters/`, tests it with `snip -v`, and the
-plugin auto-detects it. Deliberately a **slash command, not a skill**: a skill's
-description is injected into every request (a permanent prompt tax for a once-a-month
-task), a command costs zero tokens until invoked.
-
-## Why not the original opencode-snip?
-
-| | opencode-snip | smartsnip |
+| | wrap everything | smartsnip |
 |---|---|---|
-| Routing | wraps everything | allowlist from snip's own filter table |
-| `snip: no filter for "X"` noise ([#16](https://github.com/VincentHardouin/opencode-snip/issues/16)) | yes, costs tokens | impossible by construction |
-| `snip snip snip` stacking ([#15](https://github.com/VincentHardouin/opencode-snip/issues/15)) | yes | per-segment idempotency, corpus-tested |
-| `jq '.a \| .b'` pipes ([#8](https://github.com/VincentHardouin/opencode-snip/issues/8)) | broken | quote-aware parser |
-| `VAR=$(cmd) x` ([#22](https://github.com/VincentHardouin/opencode-snip/issues/22)) | corrupted | detected, passthrough |
-| heredocs ([#6](https://github.com/VincentHardouin/opencode-snip/issues/6)-class) | wrapped, breaks | detected, passthrough |
-| permission rules blast radius ([#7](https://github.com/VincentHardouin/opencode-snip/issues/7)) | every command rewritten | only filterable commands |
-| configuration | none | deny/allow, opt-out, custom filter scan |
-| SQL/API truncation | forced or full off | data channels denied by default |
+| `snip: no filter for "X"` noise | [#16](https://github.com/VincentHardouin/opencode-snip/issues/16) | impossible by construction |
+| `snip snip` stacking | [#15](https://github.com/VincentHardouin/opencode-snip/issues/15) | idempotent per segment |
+| `jq '.a \| .b'` quoted pipes | [#8](https://github.com/VincentHardouin/opencode-snip/issues/8) | quote-aware parser |
+| `VAR=$(cmd)` corruption | [#22](https://github.com/VincentHardouin/opencode-snip/issues/22) | detected, passthrough |
+| heredocs | [#6](https://github.com/VincentHardouin/opencode-snip/issues/6) | detected, passthrough |
+| permission rules see rewritten commands | [#7](https://github.com/VincentHardouin/opencode-snip/issues/7) | only filterable commands change |
+
+The router is validated against 23k+ real bash commands from actual opencode sessions —
+65% of calls still get filtered, with none of the breakage.
 
 ## Development
 
 ```bash
 bun install
-bun test                  # 47 tests incl. replay of 656 sanitized real-world commands
+bun test                  # includes a replay of 656 sanitized real-world commands
 bun run typecheck
 bun run generate:filters  # re-sync allowlist from upstream snip filters
-```
-
-Run the full private-corpus replay (any opencode user can extract their own):
-
-```bash
-SMARTSNIP_CORPUS=/path/to/corpus.json bun test
 ```
 
 ## License

@@ -4,11 +4,11 @@ import { buildMatchTable } from "./filters"
 import { rewrite } from "./router"
 import { formatTokens, nowUtcSnipFormat, savingsSince } from "./stats"
 
-export { rewrite } from "./router"
-export { loadConfig, DEFAULT_DENY, type SmartSnipConfig } from "./config"
-export { buildMatchTable, scanUserFilters } from "./filters"
-export { splitTopLevel, analyzeSegment } from "./parser"
-export { savingsSince, formatTokens } from "./stats"
+// opencode loads this module and treats EVERY export as a plugin factory: it
+// iterates the exports and calls each one, requiring each to be a function
+// ("Plugin export is not a function" otherwise). So the plugin entry must export
+// ONLY plugin functions. Library helpers (rewrite, loadConfig, DEFAULT_DENY, …)
+// are intentionally NOT re-exported here — import them from their own modules.
 
 export const SmartSnipPlugin: Plugin = async ({ $, client, directory }) => {
   // POSIX parser — PowerShell/native Windows is a non-goal for now

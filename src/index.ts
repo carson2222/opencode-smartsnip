@@ -1,16 +1,15 @@
-import type { Plugin } from "@opencode-ai/plugin"
+import type { Plugin, PluginModule } from "@opencode-ai/plugin"
 import { loadConfig } from "./config"
 import { buildMatchTable } from "./filters"
 import { rewrite } from "./router"
 import { formatTokens, nowUtcSnipFormat, savingsSince } from "./stats"
 
-// opencode loads this module and treats EVERY export as a plugin factory: it
-// iterates the exports and calls each one, requiring each to be a function
-// ("Plugin export is not a function" otherwise). So the plugin entry must export
-// ONLY plugin functions. Library helpers (rewrite, loadConfig, DEFAULT_DENY, …)
-// are intentionally NOT re-exported here — import them from their own modules.
+// Use opencode's V1 plugin module shape. If the default export is not a
+// `{ id, server }` object, opencode falls back to its legacy loader, which walks
+// every runtime export and treats each one as a plugin. Keep this entry to a
+// single default export; import library helpers from their own modules.
 
-export const SmartSnipPlugin: Plugin = async ({ $, client, directory }) => {
+const SmartSnipPlugin: Plugin = async ({ $, client, directory }) => {
   // POSIX parser — PowerShell/native Windows is a non-goal for now
   if (process.platform === "win32") return {}
 
@@ -73,4 +72,9 @@ export const SmartSnipPlugin: Plugin = async ({ $, client, directory }) => {
   }
 }
 
-export default SmartSnipPlugin
+const plugin: PluginModule = {
+  id: "opencode-smartsnip",
+  server: SmartSnipPlugin,
+}
+
+export default plugin

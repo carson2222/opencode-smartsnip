@@ -39,7 +39,7 @@ disables itself with a warning, so it's safe in a shared repo config.
 ```bash
 git clone https://github.com/carson2222/opencode-smartsnip.git
 mkdir -p ~/.config/opencode/plugins
-printf 'export { SmartSnipPlugin } from "%s/src/index"\n' "$PWD/opencode-smartsnip" \
+printf 'export { default } from "%s/src/index"\n' "$PWD/opencode-smartsnip" \
   > ~/.config/opencode/plugins/smartsnip.ts
 ```
 

@@ -3,6 +3,9 @@
 Cuts shell-output tokens in opencode. Wraps only what [snip](https://github.com/edouard-claude/snip)
 can filter — everything else runs byte-identical.
 
+<img width="1672" height="941" alt="image" src="https://github.com/user-attachments/assets/5cd71e4c-df87-41c4-90ee-2ac581650bf3" />
+
+
 ```sh
 cd /x && git status && cat big.json | jq '.a | .b'        # what the agent sent
 cd /x && snip git status && cat big.json | jq '.a | .b'   # what actually runs

@@ -45,8 +45,8 @@ printf 'export { SmartSnipPlugin } from "%s/src/index"\n' "$PWD/opencode-smartsn
 
 ## Numbers
 
-One recent day of real work on a real project: ~600 bash calls, every recorded output
-replayed through the actual snip filters — no estimates, no re-runs.
+One audited day of real work on a real project: ~600 bash calls, every credited output
+replayed through the actual snip filters — no command re-runs.
 
 |                          |             |
 | ------------------------ | ----------- |
@@ -61,7 +61,7 @@ commands that day counted as zero savings. Real reduction is higher.
 Tool output gets re-sent on every turn that follows it, so a token saved at the source
 stays saved for the rest of the session — and through compaction. That multiplier is why
 an 11% cut on raw output erased ~1M tokens of cumulative context traffic in a single day.
-It was a browser-automation-heavy day; reproduce it on your own history:
+It was a browser-automation-heavy day; run the same conservative replay on your own history:
 
 ```bash
 bun scripts/measure-savings.ts --days 7        # measured, replayed through snip
@@ -75,7 +75,7 @@ flowchart LR
     A([bash command]) --> B{heredoc, loop,<br>unbalanced quotes?}
     B -- yes --> P([run as-is])
     B -- no --> C[split into<br>top-level segments]
-    C --> D{builtin, piped,<br>subshell, denied?}
+    C --> D{builtin, piped,<br>redirected, subshell,<br>denied?}
     D -- yes --> P
     D -- no --> E{in snip's<br>filter table?}
     E -- no --> P

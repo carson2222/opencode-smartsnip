@@ -10,19 +10,20 @@
  * Honest accounting:
  *   - Recorded stdout is fed back to snip via a PATH shim — no command re-runs,
  *     no side effects. snip applies the same filter it would in a live session.
- *   - Only commands smartsnip wraps as a SINGLE top-level segment are replayed
- *     exactly. Chained / multi-segment commands are counted as UNFILTERED, so the
- *     headline percentage is conservative (real savings are higher).
+ *   - Only commands smartsnip wraps as a SINGLE top-level segment, with no shell
+ *     redirections and no path-qualified executable head, are replayed exactly.
+ *     Everything else is counted as UNFILTERED, so the headline percentage is
+ *     conservative (real savings are higher).
  *   - opencode stores stdout+stderr merged and we replay it on stdout; filters
  *     keyed to the stderr stream (e.g. some test runners) are under-credited.
  */
 import { chmodSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { homedir, tmpdir } from "node:os"
-import { join } from "node:path"
+import { dirname, join } from "node:path"
 import { loadConfig } from "../src/config"
 import { buildMatchTable } from "../src/filters"
 import { rewrite } from "../src/router"
-import { splitTopLevel } from "../src/parser"
+import { analyzeSegment, splitTopLevel, type SegmentInfo } from "../src/parser"
 import { formatTokens } from "../src/stats"
 
 function arg(name: string, def: string): string {
@@ -37,9 +38,10 @@ const dirFilter = arg("--dir", "")
 const dataRoot = process.env["XDG_DATA_HOME"] ?? join(homedir(), ".local", "share")
 const DB = join(dataRoot, "opencode", "opencode.db")
 
-const snip = Bun.which("snip")
-if (!snip) {
-  console.error("snip not found on PATH — install it first (brew install edouard-claude/tap/snip)")
+const config = loadConfig(process.cwd())
+const snipBin = config.snipPath.includes("/") ? config.snipPath : Bun.which(config.snipPath)
+if (!snipBin) {
+  console.error(`${config.snipPath} not found on PATH — install it first (brew install edouard-claude/tap/snip)`)
   process.exit(1)
 }
 
@@ -95,8 +97,8 @@ for (const m of msgRows) {
 }
 for (const a of msgTimes.values()) a.sort((x, y) => x - y)
 
-const config = loadConfig(process.cwd())
 const table = buildMatchTable(config)
+const snipDir = dirname(snipBin)
 
 const work = mkdtempSync(join(tmpdir(), "smartsnip-measure-"))
 const binDir = join(work, "bin")
@@ -108,8 +110,28 @@ let rawTotal = 0
 let afterTotal = 0
 let replayed = 0
 let chained = 0
+let unsafeReplay = 0
 let resendWeighted = 0
 const perHead = new Map<string, { calls: number; raw: number; after: number }>()
+
+function unsafeForReplay(segment: string, info: SegmentInfo): boolean {
+  const rawHead = info.body.trim().split(/\s+/)[0]!
+  if (rawHead.includes("/")) return true // PATH shim would not intercept it
+  // Redirections can read/write files even when the executable itself is shimmed.
+  return /(^|\s)(?:\d+)?(?:>>?|<<?|&>)/.test(segment)
+}
+
+function snipNames(snipPath: string): Set<string> {
+  const base = snipPath.includes("/") ? snipPath.split("/").pop()! : snipPath
+  return new Set(["snip", snipPath, base])
+}
+
+function wrappedTarget(segment: string): SegmentInfo | null {
+  const info = analyzeSegment(segment)
+  if (!info || !snipNames(config.snipPath).has(info.head)) return null
+  const rest = info.body.replace(/^\S+\s+/, "")
+  return analyzeSegment(rest)
+}
 
 for (const r of rows) {
   if (!r.cmd) continue
@@ -133,13 +155,35 @@ for (const r of rows) {
     continue
   }
 
-  const head = r.cmd.trim().split(/\s+/)[0]!
+  const rewrittenPieces = splitTopLevel(rewritten)
+  const rewrittenSegs = rewrittenPieces ? rewrittenPieces.filter((p) => p.kind !== "op") : []
+  if (rewrittenSegs.length !== 1) {
+    chained++
+    afterTotal += raw
+    continue
+  }
+
+  const rewrittenSegment = rewrittenSegs[0]!.text
+  const target = wrappedTarget(rewrittenSegment)
+  if (!target) {
+    afterTotal += raw // de-mimicry changed the command, but did not filter output
+    continue
+  }
+
+  if (unsafeForReplay(rewrittenSegment, target)) {
+    unsafeReplay++
+    afterTotal += raw // conservative: do not replay anything with possible shell side effects
+    continue
+  }
+
+  const head = target.head
   writeFileSync(payload, r.out ?? "")
   const shim = join(binDir, head)
   writeFileSync(shim, `#!/bin/sh\ncat "${payload}"\n`)
   chmodSync(shim, 0o755)
-  const proc = Bun.spawnSync(["sh", "-c", `${snip} ${r.cmd}`], {
-    env: { PATH: `${binDir}:/usr/bin:/bin`, HOME: home }, // isolate snip db/tee/config
+  const proc = Bun.spawnSync(["sh", "-c", rewritten], {
+    cwd: work,
+    env: { PATH: `${binDir}:${snipDir}:/usr/bin:/bin`, HOME: home }, // isolate snip db/tee/config
     stdout: "pipe",
     stderr: "pipe",
   })
@@ -159,7 +203,7 @@ const pct = (a: number, b: number) => (b === 0 ? 0 : 100 * (1 - a / b))
 const tok = (chars: number) => formatTokens(Math.round(chars / 4))
 
 console.log(`\nmeasure-savings — last ${days} days${dirFilter ? ` in *${dirFilter}*` : ""}`)
-console.log(`${rows.length} bash calls  ·  ${replayed} replayed through snip  ·  ${chained} chained (no credit)\n`)
+console.log(`${rows.length} bash calls  ·  ${replayed} replayed through snip  ·  ${chained} chained (no credit)  ·  ${unsafeReplay} unsafe-to-replay (no credit)\n`)
 console.log(`raw bash output      ${tok(rawTotal).padStart(9)}`)
 console.log(`with smartsnip       ${tok(afterTotal).padStart(9)}`)
 console.log(`saved                ${tok(rawTotal - afterTotal).padStart(9)}   = ${pct(afterTotal, rawTotal).toFixed(1)}% of bash output`)

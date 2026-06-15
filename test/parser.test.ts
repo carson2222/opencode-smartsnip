@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { analyzeSegment, splitTopLevel } from "../src/parser"
+import { analyzeSegment, hasRiskySyntax, splitTopLevel } from "../src/parser"
 
 const join = (pieces: { text: string }[]) => pieces.map((p) => p.text).join("")
 
@@ -105,5 +105,17 @@ describe("analyzeSegment", () => {
   test("leading whitespace preserved", () => {
     const i = analyzeSegment("  git status")!
     expect(i.leading).toBe("  ")
+  })
+})
+
+describe("hasRiskySyntax", () => {
+  test("redirections are unsafe to wrap", () => {
+    expect(hasRiskySyntax("git diff > patch.diff")).toBe(true)
+    expect(hasRiskySyntax("pnpm test 2>&1")).toBe(true)
+    expect(hasRiskySyntax("wc -l <<< 'hello'")).toBe(true)
+  })
+
+  test("quoted redirection-looking text only causes safe passthrough", () => {
+    expect(hasRiskySyntax("printf 'x > y'")).toBe(true)
   })
 })

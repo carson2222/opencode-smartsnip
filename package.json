@@ -11,7 +11,8 @@
     "commands"
   ],
   "bin": {
-    "smartsnip": "bin/smartsnip.ts"
+    "smartsnip": "bin/smartsnip.ts",
+    "opencode-smartsnip": "bin/smartsnip.ts"
   },
   "scripts": {
     "test": "bun test",

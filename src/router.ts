@@ -25,9 +25,17 @@ const OPT_OUT_RE = /(^|\s)#\s*nosnip\b/
  * there is nothing to strip or it can't be analyzed. This is what lets wrapping
  * be re-decided from a clean slate: `snip snip pnpm` → `pnpm`, `snip sed` → `sed`.
  */
-function stripSnipPrefix(segment: string, snipPath: string): string {
+function snipHeadNames(snipPath: string): Set<string> {
   const base = snipPath.includes("/") ? snipPath.split("/").pop()! : snipPath
-  const names = new Set(["snip", snipPath, base])
+  return new Set(["snip", snipPath, base])
+}
+
+function isSnipHead(head: string, snipPath: string): boolean {
+  return snipHeadNames(snipPath).has(head)
+}
+
+function stripSnipPrefix(segment: string, snipPath: string): string {
+  const names = snipHeadNames(snipPath)
   let cur = segment
   for (;;) {
     const info = analyzeSegment(cur)
@@ -57,7 +65,7 @@ export function shouldWrap(
   if (hasRiskySyntax(segment)) return null
   const info = analyzeSegment(segment)
   if (!info) return null
-  if (info.head === "snip" || info.head === config.snipPath) return null // idempotency
+  if (isSnipHead(info.head, config.snipPath)) return null // idempotency
   if (BUILTINS.has(info.head)) return null
   if (info.body.startsWith("(") || info.body.startsWith("{")) return null // subshell/group
 

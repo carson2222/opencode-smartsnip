@@ -159,5 +159,7 @@ export function analyzeSegment(segment: string): SegmentInfo | null {
 
 /** Syntax inside a segment that makes wrapping unsafe. */
 export function hasRiskySyntax(segment: string): boolean {
-  return /\$\(|`|<\(|>\(/.test(segment)
+  // Redirections must stay raw: `snip git diff > patch.diff` would write the
+  // filtered/truncated diff into the file instead of the original output.
+  return /\$\(|`|<\(|>\(|(^|\s)(?:\d+)?(?:>>?|<<?|&>)/.test(segment)
 }

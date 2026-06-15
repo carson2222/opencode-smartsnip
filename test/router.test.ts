@@ -80,6 +80,11 @@ describe("idempotency (issue #15)", () => {
     const once = rw("git add . && git commit -m 'x'")
     expect(rw(once)).toBe(once)
   })
+
+  test("custom snipPath basename is treated as already wrapped", () => {
+    const cfg = { ...config, snipPath: "/opt/bin/snip-custom", stripMimicry: false }
+    expect(rewrite("snip-custom git status", table, cfg)).toBe("snip-custom git status")
+  })
 })
 
 describe("de-mimicry: strip stray snip the agent learned from persisted history", () => {
@@ -100,6 +105,12 @@ describe("de-mimicry: strip stray snip the agent learned from persisted history"
   test("re-wraps a filterable command after stripping (still idempotent)", () => {
     expect(rw("snip git status")).toBe("snip git status")
     expect(rw("FOO=1 snip git log -1")).toBe("FOO=1 snip git log -1")
+  })
+
+  test("custom snipPath mimicry uses its basename", () => {
+    const cfg = { ...config, snipPath: "/opt/bin/snip-custom" }
+    expect(rewrite("snip-custom sed -n 1p f", table, cfg)).toBe("sed -n 1p f")
+    expect(rewrite("snip-custom git status", table, cfg)).toBe("/opt/bin/snip-custom git status")
   })
 
   test("preserves snip on a command the plugin knows is filterable", () => {
@@ -145,6 +156,12 @@ describe("risky syntax passthrough", () => {
   test("subshells", () => {
     const cmd = "(cd /tmp && git status)"
     expect(rw(cmd)).toBe(cmd)
+  })
+
+  test("redirections stay byte-identical", () => {
+    expect(rw("git diff > patch.diff")).toBe("git diff > patch.diff")
+    expect(rw("pnpm test 2>&1")).toBe("pnpm test 2>&1")
+    expect(rw("wc -l <<< 'hello'")).toBe("wc -l <<< 'hello'")
   })
 })
 

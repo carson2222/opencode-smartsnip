@@ -185,13 +185,17 @@ async function doctor(): Promise<void> {
   console.log("\nsmartsnip doctor\n")
 
   // snip binary
-  const which = Bun.spawnSync(["sh", "-c", `command -v ${config.snipPath}`])
-  if (which.exitCode === 0) ok(`snip binary: ${which.stdout.toString().trim()}`)
+  const which = Bun.spawnSync(["sh", "-c", 'command -v "$1"', "smartsnip-doctor", config.snipPath])
+  const snipAvailable = which.exitCode === 0
+  if (snipAvailable) ok(`snip binary: ${which.stdout.toString().trim()}`)
   else warn(`'${config.snipPath}' not on PATH — plugin will disable itself`)
 
   // snip config / tee mode (reversibility)
-  const snipCfg = Bun.spawnSync(["sh", "-c", `${config.snipPath} config 2>/dev/null`])
-  const cfgText = snipCfg.stdout.toString()
+  let cfgText = ""
+  if (snipAvailable) {
+    const snipCfg = Bun.spawnSync([config.snipPath, "config"], { stderr: "ignore" })
+    cfgText = snipCfg.stdout.toString()
+  }
   const teeMode = cfgText.match(/tee\.mode:\s*(\S+)/)?.[1]
   if (teeMode === "always")
     ok("tee.mode=always — every filtered output is recoverable ([full output: …] markers)")
@@ -204,6 +208,7 @@ async function doctor(): Promise<void> {
   else warn("could not read snip tee mode")
   const quiet = cfgText.match(/display\.quiet_no_filter:\s*(\S+)/)?.[1]
   if (quiet === "true") ok("quiet_no_filter=true — agent-mimicked snip prefixes stay silent")
+  else if (!cfgText) warn("could not read quiet_no_filter setting")
   else
     warn(
       "quiet_no_filter=false — opencode persists rewritten commands, so agents start\n" +

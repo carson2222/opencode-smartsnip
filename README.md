@@ -1,9 +1,21 @@
+<div align="center">
+
 # opencode-smartsnip
 
-Cuts shell-output tokens in opencode. Wraps only what [snip](https://github.com/edouard-claude/snip)
-can filter — everything else runs byte-identical.
+**Cut shell-output tokens in opencode — without breaking a single command.**
 
-<img width="739" height="293" alt="image" src="https://github.com/user-attachments/assets/c7bd2e5a-2230-4a8d-9472-fd5bd93a7e77" />
+Wraps only what [snip](https://github.com/edouard-claude/snip) can filter — everything else runs byte-identical.
+
+[![npm version](https://img.shields.io/npm/v/opencode-smartsnip?style=flat-square&logo=npm&color=cb3837)](https://www.npmjs.com/package/opencode-smartsnip)
+[![npm downloads](https://img.shields.io/npm/dm/opencode-smartsnip?style=flat-square&color=cb3837)](https://www.npmjs.com/package/opencode-smartsnip)
+[![GitHub stars](https://img.shields.io/github/stars/carson2222/opencode-smartsnip?style=flat-square&logo=github)](https://github.com/carson2222/opencode-smartsnip/stargazers)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue?style=flat-square)](LICENSE)
+
+[Install](#install) · [Numbers](#numbers) · [How routing works](#how-routing-works) · [Configuration](#configuration)
+
+<img src="https://github.com/user-attachments/assets/c7bd2e5a-2230-4a8d-9472-fd5bd93a7e77" width="620" alt="smartsnip inserts snip only on the command segments it can safely filter, leaving everything else byte-identical" />
+
+</div>
 
 ```sh
 cd /x && git status && cat big.json | jq '.a | .b'        # what the agent sent

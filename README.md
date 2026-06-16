@@ -13,7 +13,7 @@ Wraps only what [snip](https://github.com/edouard-claude/snip) can filter — ev
 
 [Install](#install) · [Numbers](#numbers) · [How routing works](#how-routing-works) · [Configuration](#configuration)
 
-<img src="https://github.com/user-attachments/assets/c7bd2e5a-2230-4a8d-9472-fd5bd93a7e77" width="620" alt="smartsnip inserts snip only on the command segments it can safely filter, leaving everything else byte-identical" />
+<img src="https://github.com/user-attachments/assets/f023ea2f-d6e8-46d5-bfac-fd5a904be3bf" width="620" alt="smartsnip inserts snip only on the command segments it can safely filter, leaving everything else byte-identical" />
 
 </div>
 

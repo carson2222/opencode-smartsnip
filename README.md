@@ -2,9 +2,9 @@
 
 # opencode-smartsnip
 
-**Cut shell-output tokens in opencode — without breaking a single command.**
+**Cuts shell-output tokens in opencode.**
 
-Wraps only what [snip](https://github.com/edouard-claude/snip) can filter — everything else runs byte-identical.
+Wraps only what [snip](https://github.com/edouard-claude/snip) can filter. Everything else runs byte-identical.
 
 [![npm version](https://img.shields.io/npm/v/opencode-smartsnip?style=flat-square&logo=npm&color=cb3837)](https://www.npmjs.com/package/opencode-smartsnip)
 [![npm downloads](https://img.shields.io/npm/dm/opencode-smartsnip?style=flat-square&color=cb3837)](https://www.npmjs.com/package/opencode-smartsnip)
@@ -17,16 +17,16 @@ Wraps only what [snip](https://github.com/edouard-claude/snip) can filter — ev
 
 </div>
 
-```sh
-cd /x && git status && cat big.json | jq '.a | .b'        # what the agent sent
-cd /x && snip git status && cat big.json | jq '.a | .b'   # what actually runs
+&nbsp;
+
+```diff
+- git status && cat data.json | jq '.users | length'
++ snip git status && cat data.json | jq '.users | length'
 ```
 
-snip strips the noise out of git/test/build output before it reaches the model.
-The hard part is knowing when wrapping is safe. Wrap everything and you get stacked
-`snip snip` prefixes, broken pipes, and truncated API responses. smartsnip parses each
-command and wraps only the segments that match snip's own filter table. When in doubt,
-it does nothing.
+Only `git status` gets the `snip` prefix. The `jq` pipe is left exactly as the agent
+wrote it. smartsnip works out which parts of a command are safe to wrap, wraps just
+those, and does nothing when it isn't sure.
 
 ## Install
 

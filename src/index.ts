@@ -10,20 +10,21 @@ import { formatTokens, nowUtcSnipFormat, savingsSince } from "./stats"
 // single default export; import library helpers from their own modules.
 
 const SmartSnipPlugin: Plugin = async ({ $, client, directory }) => {
-  // POSIX parser — PowerShell/native Windows is a non-goal for now
-  if (process.platform === "win32") return {}
-
   const config = loadConfig(directory)
   if (!config.enabled) return {}
 
   try {
     await $`command -v ${config.snipPath}`.quiet()
   } catch {
-    console.warn(
-      `[smartsnip] '${config.snipPath}' not found in PATH — plugin disabled. ` +
-        "Install: brew install edouard-claude/tap/snip",
-    )
-    return {}
+    try {
+      await $`Get-Command ${config.snipPath}`.quiet()
+    } catch {
+      console.warn(
+        `[smartsnip] '${config.snipPath}' not found in PATH — plugin disabled. ` +
+          "Install: brew install edouard-claude/tap/snip",
+      )
+      return {}
+    }
   }
 
   const table = buildMatchTable(config)

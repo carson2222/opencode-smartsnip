@@ -11,8 +11,9 @@ import { homedir } from "node:os"
 import { join } from "node:path"
 import { loadConfig, DEFAULT_DENY } from "../src/config"
 import { buildMatchTable } from "../src/filters"
-import { BUILTINS, shouldWrap } from "../src/router"
+import { BUILTINS, isSnipHead, OPT_OUT_RE, shouldWrap, stripSnipPrefix } from "../src/router"
 import { splitTopLevel, analyzeSegment } from "../src/parser"
+import { PINNED_SNIP_VERSION, resolveSnip, snipVersion } from "../src/snip-cli"
 import { formatTokens } from "../src/stats"
 
 const dataRoot = process.env["XDG_DATA_HOME"] ?? join(homedir(), ".local", "share")
@@ -25,18 +26,32 @@ function opendb(path: string) {
 
 interface Agg {
   calls: number
-  outChars: number
+  /**
+   * Characters of tool output as opencode stored them. For a segment that ran
+   * under snip this is already the filtered text, so it is never a saving and
+   * never the raw size — only what the model actually read.
+   */
+  storedChars: number
 }
 
-/** True when a filter rule matches command+subcommand regardless of flag exclusions. */
 function matchesFilterIgnoringFlags(
   head: string,
-  sub: string | null,
+  matcherKey: string,
   table: ReturnType<typeof buildMatchTable>,
 ): boolean {
   const entry = table.get(head)
   if (!entry) return false
-  return entry.subcommands.has(null) || (sub !== null && entry.subcommands.has(sub))
+  return entry.subcommands.has(null) || entry.subcommands.has(matcherKey)
+}
+
+function compareVersions(a: string, b: string): number {
+  const left = a.split(".").map(Number)
+  const right = b.split(".").map(Number)
+  for (let i = 0; i < 3; i++) {
+    const difference = (left[i] ?? 0) - (right[i] ?? 0)
+    if (difference !== 0) return difference
+  }
+  return 0
 }
 
 function discover(days: number): void {
@@ -62,19 +77,26 @@ function discover(days: number): void {
     .all(since) as { cmd: string | null; len: number | null }[]
   db.close()
 
-  const wrapped = new Map<string, Agg>()
+  const alreadyFiltered = new Map<string, Agg>()
+  const wouldWrap = new Map<string, Agg>()
   const denied = new Map<string, Agg>()
   const noFilter = new Map<string, Agg>()
-  const formatExcluded: Agg = { calls: 0, outChars: 0 }
-  const unparseable: Agg = { calls: 0, outChars: 0 }
+  const formatExcluded: Agg = { calls: 0, storedChars: 0 }
+  const piped: Agg = { calls: 0, storedChars: 0 }
+  const optedOut: Agg = { calls: 0, storedChars: 0 }
+  const unparseable: Agg = { calls: 0, storedChars: 0 }
   let total = 0
   let totalChars = 0
 
   const bump = (m: Map<string, Agg>, key: string, chars: number) => {
-    const a = m.get(key) ?? { calls: 0, outChars: 0 }
+    const a = m.get(key) ?? { calls: 0, storedChars: 0 }
     a.calls++
-    a.outChars += chars
+    a.storedChars += chars
     m.set(key, a)
+  }
+  const bumpOne = (a: Agg, chars: number) => {
+    a.calls++
+    a.storedChars += chars
   }
 
   for (const r of rows) {
@@ -82,48 +104,62 @@ function discover(days: number): void {
     total++
     const chars = r.len ?? 0
     totalChars += chars
-    const pieces = splitTopLevel(r.cmd)
-    if (!pieces) {
-      unparseable.calls++
-      unparseable.outChars += chars
+
+    // an explicit opt-out is a decision, not a gap
+    if (OPT_OUT_RE.test(r.cmd)) {
+      bumpOne(optedOut, chars)
       continue
     }
-    // classify every interesting top-level segment; share output chars evenly
-    const segs: { head: string; sub: string | null; text: string }[] = []
-    let prevOp: string | null = null
+    const pieces = splitTopLevel(r.cmd)
+    if (!pieces) {
+      bumpOne(unparseable, chars)
+      continue
+    }
+    // In a pipeline the stored output belongs to the last stage, so nothing
+    // about the head's filter can be read off these characters.
+    if (pieces.some((p) => p.kind === "op" && (p.text === "|" || p.text === "|&"))) {
+      bumpOne(piped, chars)
+      continue
+    }
+
+    // classify every interesting top-level segment; split stored chars evenly
+    const segs: { head: string; sub: string | null; matcherKey: string; text: string; wasWrapped: boolean }[] = []
     for (const p of pieces) {
-      if (p.kind === "op") {
-        prevOp = p.text
-        continue
-      }
-      const downstreamOfPipe = prevOp === "|" || prevOp === "|&"
-      prevOp = null
-      if (downstreamOfPipe || !p.text.trim()) continue // pipe consumers are never wrappable
-      const info = analyzeSegment(p.text)
+      if (p.kind === "op" || !p.text.trim()) continue
+      // history stores the rewritten command, so unwrap it and judge the real one
+      const text = stripSnipPrefix(p.text, config.snipPath)
+      const info = analyzeSegment(text)
       if (!info) continue
       if (BUILTINS.has(info.head)) continue // builtins are noise, not opportunity
-      if (info.head === "snip") continue // already-wrapped historical commands
-      segs.push({ head: info.head, sub: info.subcommand, text: p.text })
+      // what survives stripping with a snip head is snip's own CLI (`snip gain`)
+      if (isSnipHead(info.head, config.snipPath)) continue
+      segs.push({
+        head: info.head,
+        sub: info.subcommand,
+        matcherKey: info.tokens[1] ?? "",
+        text,
+        wasWrapped: text !== p.text,
+      })
     }
     if (segs.length === 0) {
-      unparseable.calls++
-      unparseable.outChars += chars
+      bumpOne(unparseable, chars)
       continue
     }
     const share = chars / segs.length
     for (const s of segs) {
-      if (shouldWrap(s.text, table, config)) {
-        bump(wrapped, s.head, share)
+      if (s.wasWrapped) {
+        bump(alreadyFiltered, s.head, share)
+      } else if (shouldWrap(s.text, table, config)) {
+        bump(wouldWrap, s.head, share)
       } else if (
         table.has(s.head) &&
         (config.deny.includes(s.head) || (s.sub && config.deny.includes(`${s.head} ${s.sub}`)))
       ) {
         bump(denied, s.head, share)
-      } else if (matchesFilterIgnoringFlags(s.head, s.sub, table)) {
+      } else if (matchesFilterIgnoringFlags(s.head, s.matcherKey, table)) {
         // a filter exists but the agent asked for a specific format (exclude_flags)
-        // — intentional decline, not a missed saving
-        formatExcluded.calls++
-        formatExcluded.outChars += share
+        // — an intentional decline
+        bumpOne(formatExcluded, share)
       } else {
         // subcommand granularity for commands snip partially covers (e.g. "git checkout")
         const sub = s.sub && /^[a-z0-9:_-]+$/i.test(s.sub) ? s.sub : null
@@ -134,15 +170,26 @@ function discover(days: number): void {
   }
 
   const top = (m: Map<string, Agg>, n: number) =>
-    [...m.entries()].sort((a, b) => b[1].outChars - a[1].outChars).slice(0, n)
+    [...m.entries()].sort((a, b) => b[1].storedChars - a[1].storedChars).slice(0, n)
   const line = (k: string, a: Agg) =>
-    `  ${k.padEnd(24)} ${String(a.calls).padStart(6)} calls  ${formatTokens(Math.round(a.outChars / 4)).padStart(8)} est. tokens`
+    `  ${k.padEnd(24)} ${String(a.calls).padStart(6)} calls  ${formatTokens(Math.round(a.storedChars / 4)).padStart(8)} est. tokens`
+  const one = (label: string, a: Agg) =>
+    console.log(`${label}: ${a.calls} calls, ~${formatTokens(Math.round(a.storedChars / 4))} est. tokens`)
 
   console.log(`\nsmartsnip discover — last ${days} days of opencode bash history`)
-  console.log(`${total} commands, ~${formatTokens(Math.round(totalChars / 4))} tokens of raw output\n`)
+  console.log(
+    `${total} commands, ~${formatTokens(Math.round(totalChars / 4))} est. tokens of stored output.`,
+  )
+  console.log(
+    "Counts below are what opencode stored, not raw command output and not savings:\n" +
+      "snip-filtered entries were already condensed before they were stored.\n",
+  )
 
-  console.log("FILTERED by snip (working for you):")
-  for (const [k, a] of top(wrapped, 10)) console.log(line(k, a))
+  console.log("RAN UNDER SNIP (stored output is post-filter):")
+  for (const [k, a] of top(alreadyFiltered, 10)) console.log(line(k, a))
+
+  console.log("\nWRAP-ELIGIBLE, RAN RAW (routing would wrap these today):")
+  for (const [k, a] of top(wouldWrap, 10)) console.log(line(k, a))
 
   const deniedTop = top(denied, 5)
   if (deniedTop.length) {
@@ -150,30 +197,14 @@ function discover(days: number): void {
     for (const [k, a] of deniedTop) console.log(line(k, a))
   }
 
-  console.log("\nNO FILTER (biggest missed savings first):")
+  console.log("\nNO FILTER IN SNIP (largest stored output first):")
   for (const [k, a] of top(noFilter, 10)) console.log(line(k, a))
 
-  if (formatExcluded.calls > 0)
-    console.log(
-      `\nDECLINED — agent asked for a specific format (exclude_flags): ${formatExcluded.calls} calls, ~${formatTokens(Math.round(formatExcluded.outChars / 4))} est. tokens`,
-    )
-  console.log(
-    `\nUNWRAPPABLE (heredocs/control flow/pipes-only): ${unparseable.calls} calls, ~${formatTokens(Math.round(unparseable.outChars / 4))} est. tokens`,
-  )
-
-  const best = top(noFilter, 3).filter(([, a]) => a.outChars > 100_000)
-  if (best.length) {
-    console.log("\nSuggestions:")
-    for (const [k] of best) {
-      console.log(
-        `  - write a snip filter for '${k}' (~5 min of YAML): https://github.com/edouard-claude/snip/blob/master/SKILL.md`,
-      )
-    }
-    console.log(`  then it is auto-detected — no plugin config needed (scanUserFilters).`)
-    console.log(
-      `  tip: \`smartsnip install-command\` adds a /snip-filter slash command that automates this.`,
-    )
-  }
+  console.log()
+  if (formatExcluded.calls > 0) one("DECLINED — a specific format was requested (exclude_flags)", formatExcluded)
+  if (optedOut.calls > 0) one("OPTED OUT — #nosnip", optedOut)
+  one("PIPED — stored output is the last stage's, so the head's filter tells nothing", piped)
+  one("UNPARSEABLE — heredocs, control flow, subshells", unparseable)
   console.log()
 }
 
@@ -184,25 +215,44 @@ async function doctor(): Promise<void> {
 
   console.log("\nsmartsnip doctor\n")
 
-  // snip binary
-  const which = Bun.spawnSync(["sh", "-c", 'command -v "$1"', "smartsnip-doctor", config.snipPath])
-  const snipAvailable = which.exitCode === 0
-  if (snipAvailable) ok(`snip binary: ${which.stdout.toString().trim()}`)
-  else warn(`'${config.snipPath}' not on PATH — plugin will disable itself`)
+  const resolved = resolveSnip(config.snipPath)
+  if (!resolved) warn(`'${config.snipPath}' not found — plugin will disable itself`)
+  else {
+    ok(`snip binary: ${resolved}`)
+    const version = snipVersion(resolved)
+    if (!version) warn("could not read snip's version")
+    else if (version === PINNED_SNIP_VERSION)
+      ok(`snip ${version} (routing table is generated from this release)`)
+    else if (compareVersions(version, PINNED_SNIP_VERSION) < 0)
+      warn(
+        `snip ${version} installed; routing is generated from ${PINNED_SNIP_VERSION}.\n` +
+          `    Filters differ between releases, so upgrade to ${PINNED_SNIP_VERSION} or newer:\n` +
+          "    brew upgrade snip",
+      )
+    else
+      warn(
+        `snip ${version} installed; embedded routing rules target ${PINNED_SNIP_VERSION}.\n` +
+          "    Check for a SmartSnip update with rules for this Snip release.",
+      )
+  }
 
   // snip config / tee mode (reversibility)
   let cfgText = ""
-  if (snipAvailable) {
-    const snipCfg = Bun.spawnSync([config.snipPath, "config"], { stderr: "ignore" })
+  if (resolved) {
+    const snipCfg = Bun.spawnSync([resolved, "config"], { stderr: "ignore" })
     cfgText = snipCfg.stdout.toString()
   }
   const teeMode = cfgText.match(/tee\.mode:\s*(\S+)/)?.[1]
   if (teeMode === "always")
-    ok("tee.mode=always — every filtered output is recoverable ([full output: …] markers)")
+    ok(
+      "tee.mode=always — raw output is saved and linked as [full output: …].\n" +
+        "    Outputs under 500 bytes are skipped; default limits are 1 MiB per file\n" +
+        "    and 20 files. Use #nosnip when you need unfiltered output.",
+    )
   else if (teeMode === "failures")
     warn(
       "tee.mode=failures — raw output only saved when commands fail.\n" +
-        "    For headroom-style full reversibility set in ~/.config/snip/config.toml:\n" +
+        "    To save it for successful commands too, set in ~/.config/snip/config.toml:\n" +
         '    [tee]\n    mode = "always"',
     )
   else warn("could not read snip tee mode")

@@ -5,26 +5,30 @@ import { BUILTIN_FILTERS } from "./builtin-filters"
 import { extractMatchRules, type FilterRule } from "./filter-yaml"
 import type { SmartSnipConfig } from "./config"
 
+/**
+ * Keys mirror snip's registry: `null` is the wildcard filter that omits
+ * `match.subcommand`, `""` is the bare-invocation entry, anything else is an
+ * exact first argument.
+ */
+export type SubKey = string | null
+
 export interface MatchEntry {
-  /** null in the set means "any subcommand" */
-  subcommands: Set<string | null>
-  /** exclude flags per subcommand key ("" for null) */
-  excludeFlags: Map<string, string[]>
-  /** require flags per subcommand key ("" for null) — wrap only if ALL present */
-  requireFlags: Map<string, string[]>
+  subcommands: Set<SubKey>
+  excludeFlags: Map<SubKey, string[]>
+  requireFlags: Map<SubKey, string[]>
 }
 
 export type MatchTable = Map<string, MatchEntry>
 
-function addRule(table: MatchTable, rule: FilterRule): void {
+export function addRule(table: MatchTable, rule: FilterRule): void {
   let entry = table.get(rule.command)
   if (!entry) {
     entry = { subcommands: new Set(), excludeFlags: new Map(), requireFlags: new Map() }
     table.set(rule.command, entry)
   }
   entry.subcommands.add(rule.subcommand)
-  entry.excludeFlags.set(rule.subcommand ?? "", rule.excludeFlags)
-  if (rule.requireFlags?.length) entry.requireFlags.set(rule.subcommand ?? "", rule.requireFlags)
+  entry.excludeFlags.set(rule.subcommand, rule.excludeFlags)
+  if (rule.requireFlags?.length) entry.requireFlags.set(rule.subcommand, rule.requireFlags)
 }
 
 /** Scan user-authored snip filters so custom filters become wrap-eligible automatically. */
@@ -35,8 +39,7 @@ export function scanUserFilters(dir = join(homedir(), ".config", "snip", "filter
     for (const f of readdirSync(dir)) {
       if (!f.endsWith(".yaml") && !f.endsWith(".yml")) continue
       try {
-        const rule = extractMatchRules(readFileSync(join(dir, f), "utf8"))
-        if (rule) rules.push(rule)
+        rules.push(...extractMatchRules(readFileSync(join(dir, f), "utf8")))
       } catch {
         // unreadable filter — snip itself will deal with it; we just don't route to it
       }

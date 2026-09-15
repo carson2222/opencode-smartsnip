@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test"
-import { buildMatchTable } from "../src/filters"
+import { addRule, buildMatchTable } from "../src/filters"
+import { extractMatchRules } from "../src/filter-yaml"
 import { rewrite } from "../src/router"
 import type { SmartSnipConfig } from "../src/config"
 import { DEFAULT_DENY } from "../src/config"
@@ -73,7 +74,7 @@ describe("chains and pipes", () => {
 describe("idempotency (issue #15)", () => {
   test("already-snipped segments are not re-wrapped", () => {
     expect(rw("snip git status")).toBe("snip git status")
-    expect(rw("cd /x && snip pnpm lint")).toBe("cd /x && snip pnpm lint")
+    expect(rw("cd /x && snip pnpm install")).toBe("cd /x && snip pnpm install")
   })
 
   test("rewrite is idempotent end-to-end", () => {
@@ -94,8 +95,10 @@ describe("de-mimicry: strip stray snip the agent learned from persisted history"
   })
 
   test("collapses agent-typed snip stacking (issue #15)", () => {
-    expect(rw("snip snip pnpm lint")).toBe("snip pnpm lint")
+    expect(rw("snip snip pnpm install")).toBe("snip pnpm install")
     expect(rw("snip snip snip git status")).toBe("snip git status")
+    // a command snip cannot filter collapses all the way down
+    expect(rw("snip snip pnpm lint")).toBe("pnpm lint")
   })
 
   test("strips a stray snip on a pipe consumer", () => {
@@ -203,28 +206,25 @@ describe("config: deny / allow / opt-out", () => {
 })
 
 describe("require_flags honored (user filters like node --test)", () => {
-  const { extractMatchRules } = require("../src/filter-yaml")
-  const rule = extractMatchRules(
+  const rules = extractMatchRules(
     'name: "node-test"\nversion: 1\nmatch:\n  command: "node"\n  require_flags: ["--test"]\npipeline:\n  - action: "head"\n    n: 5\n',
   )
 
   test("yaml extraction picks up require_flags", () => {
-    expect(rule).toEqual({ command: "node", subcommand: null, excludeFlags: [], requireFlags: ["--test"] })
+    expect(rules).toEqual([
+      { command: "node", subcommand: null, excludeFlags: [], requireFlags: ["--test"] },
+    ])
   })
 
   test("wraps only when required flag present", () => {
     const t = buildMatchTable(config)
-    // simulate a scanned user filter
-    t.set("node", {
-      subcommands: new Set([null]),
-      excludeFlags: new Map([["", []]]),
-      requireFlags: new Map([["", ["--test"]]]),
-    })
+    for (const rule of rules) addRule(t, rule)
     expect(rewrite("node --import tsx --test app.test.ts", t, config)).toBe(
       "snip node --import tsx --test app.test.ts",
     )
     expect(rewrite("node server.js", t, config)).toBe("node server.js")
-    // snip ≤0.15.0 cannot see a required flag in the first-arg slot — must not wrap
-    expect(rewrite("node --test app.test.ts", t, config)).toBe("node --test app.test.ts")
+    // snip matches require_flags against every argument including the first
+    // (registry.go Match prepends the subcommand to allArgs, v0.25.2)
+    expect(rewrite("node --test app.test.ts", t, config)).toBe("snip node --test app.test.ts")
   })
 })

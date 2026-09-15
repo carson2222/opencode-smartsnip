@@ -15,6 +15,7 @@ import { join } from "node:path"
 import { buildMatchTable } from "../src/filters"
 import { rewrite } from "../src/router"
 import { DEFAULT_DENY, type SmartSnipConfig } from "../src/config"
+import { SNIP_NATIVE_SUBCOMMANDS } from "../src/snip-cli"
 
 const config: SmartSnipConfig = {
   enabled: true,
@@ -43,11 +44,12 @@ const corpus = loadCorpus()
 
 describe(`corpus replay (${corpus.length} real commands)`, () => {
   test("unwrap restores original", () => {
+    // `snip gain`, `snip config`, … are snip's own CLI, not a wrapped command
+    const native = [...SNIP_NATIVE_SUBCOMMANDS].join("|")
+    const unwrap = new RegExp(`(^|\\s|;|&|\\|)snip (?!${native}|-)`, "g")
     for (const cmd of corpus) {
       const out = rewrite(cmd, table, config)
-      const restored = out.replaceAll(/(^|\s|;|&|\|)snip (?!gain|init|config|proxy|discover)/g, "$1")
-      const restoredOriginal = cmd.replaceAll(/(^|\s|;|&|\|)snip (?!gain|init|config|proxy|discover)/g, "$1")
-      expect(restored).toBe(restoredOriginal)
+      expect(out.replaceAll(unwrap, "$1")).toBe(cmd.replaceAll(unwrap, "$1"))
     }
   })
 

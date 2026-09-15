@@ -4,8 +4,9 @@ import {
   splitTopLevel,
   type SegmentInfo,
 } from "./parser"
-import type { MatchTable } from "./filters"
+import type { MatchEntry, MatchTable, SubKey } from "./filters"
 import type { SmartSnipConfig } from "./config"
+import { SNIP_NATIVE_SUBCOMMANDS } from "./snip-cli"
 
 /** Shell builtins and shell-internal words that must never be wrapped. */
 export const BUILTINS = new Set([
@@ -17,29 +18,35 @@ export const BUILTINS = new Set([
 ])
 
 /** Agent opt-out marker: a `#nosnip` comment anywhere disables wrapping for the call. */
-const OPT_OUT_RE = /(^|\s)#\s*nosnip\b/
+export const OPT_OUT_RE = /(^|\s)#\s*nosnip\b/
 
-/**
- * Peel stray `snip` prefixes (one or more) off a segment, preserving leading
- * whitespace and any env-assignment prefix. Returns the segment unchanged when
- * there is nothing to strip or it can't be analyzed. This is what lets wrapping
- * be re-decided from a clean slate: `snip snip pnpm` → `pnpm`, `snip sed` → `sed`.
- */
 function snipHeadNames(snipPath: string): Set<string> {
   const base = snipPath.includes("/") ? snipPath.split("/").pop()! : snipPath
   return new Set(["snip", snipPath, base])
 }
 
-function isSnipHead(head: string, snipPath: string): boolean {
+export function isSnipHead(head: string, snipPath: string): boolean {
   return snipHeadNames(snipPath).has(head)
 }
 
-function stripSnipPrefix(segment: string, snipPath: string): string {
+/**
+ * Peel stray `snip` prefixes (one or more) off a segment, preserving leading
+ * whitespace and any env-assignment prefix. This is what lets wrapping be
+ * re-decided from a clean slate: `snip snip pnpm` → `pnpm`, `snip sed` → `sed`.
+ *
+ * A prefix is only stray when snip would treat the next token as a program to
+ * run. `snip config`, `snip gain --daily` and `snip --version` are snip's own
+ * CLI, and stripping the head there turned them into `config`, `gain --daily`
+ * and a bare `--version`.
+ */
+export function stripSnipPrefix(segment: string, snipPath: string): string {
   const names = snipHeadNames(snipPath)
   let cur = segment
   for (;;) {
     const info = analyzeSegment(cur)
     if (!info || !names.has(info.head) || info.tokens.length < 2) return cur
+    const next = info.tokens[1]!
+    if (next.startsWith("-") || SNIP_NATIVE_SUBCOMMANDS.has(next)) return cur
     // body starts at the head; drop the first token and its trailing whitespace
     cur = info.leading + info.envPrefix + info.body.replace(/^\S+\s+/, "")
   }
@@ -71,41 +78,38 @@ export function shouldWrap(
 
   const entry = table.get(info.head)
   if (!entry) return null
-
-  // subcommand matching: a `null` rule matches anything; otherwise the segment's
-  // first non-flag argument must equal a listed subcommand
-  let subKey: string
-  if (entry.subcommands.has(null)) {
-    subKey = ""
-  } else if (info.subcommand !== null && entry.subcommands.has(info.subcommand)) {
-    subKey = info.subcommand
-  } else {
-    return null
-  }
-
-  // honor snip's own exclude_flags (prefix matching, mirroring snip's matcher)
-  const excludes = entry.excludeFlags.get(subKey) ?? []
-  if (excludes.length > 0) {
-    for (const token of info.tokens.slice(1)) {
-      if (!token.startsWith("-")) continue
-      const bare = token.split("=")[0]!
-      if (excludes.some((ex) => bare.startsWith(ex))) return null
-    }
-  }
-
-  // honor snip's require_flags: wrap only if ALL required flags are present.
-  // NOTE: snip (≤0.15.0) checks require_flags against args[1:] only — a required
-  // flag in the first-argument slot is not seen (fixed on master). We mirror the
-  // stricter reading (tokens after the first argument), which is correct on
-  // 0.15.0 and merely conservative (safe passthrough) on fixed versions.
-  const requires = entry.requireFlags.get(subKey) ?? []
-  if (requires.length > 0) {
-    const flags = info.tokens.slice(2).filter((t) => t.startsWith("-")).map((t) => t.split("=")[0]!)
-    if (!requires.every((req) => flags.some((f) => f.startsWith(req)))) return null
-  }
+  if (!matchesEntry(entry, info)) return null
 
   if (isDenied(info, config)) return null
   return info
+}
+
+/**
+ * Mirror of snip's `Registry.Match` + `matchesFlags` (internal/filter/registry.go,
+ * v0.25.2). Three details that all cost output when they were approximated:
+ *
+ * - the subcommand key is literally the first argument, flag or not, so
+ *   `git --no-pager log` reaches no filter and must not be wrapped;
+ * - an absent first argument is the `""` key, which is how `yarn` alone matches;
+ * - `exclude_flags`/`require_flags` are prefix-matched against *every* argument,
+ *   positionals included, so `gh pr` excludes the literal `diff`.
+ *
+ * `info.subcommand` stays the first non-flag argument: that is the useful
+ * reading for the user's own deny/allow entries, not for snip's table.
+ */
+function matchesEntry(entry: MatchEntry, info: SegmentInfo): boolean {
+  const args = info.tokens.slice(1)
+  const firstArg = args[0] ?? ""
+  const candidates: SubKey[] = []
+  if (entry.subcommands.has(firstArg)) candidates.push(firstArg)
+  if (entry.subcommands.has(null)) candidates.push(null)
+
+  return candidates.some((key) => {
+    const excludes = entry.excludeFlags.get(key) ?? []
+    if (excludes.some((ex) => args.some((a) => a.startsWith(ex)))) return false
+    const requires = entry.requireFlags.get(key) ?? []
+    return requires.every((req) => args.some((a) => a.startsWith(req)))
+  })
 }
 
 /**

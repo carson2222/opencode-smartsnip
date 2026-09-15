@@ -2,6 +2,7 @@ import type { Plugin, PluginModule } from "@opencode-ai/plugin"
 import { loadConfig } from "./config"
 import { buildMatchTable } from "./filters"
 import { rewrite } from "./router"
+import { resolveSnip } from "./snip-cli"
 import { formatTokens, nowUtcSnipFormat, savingsSince } from "./stats"
 
 // Use opencode's V1 plugin module shape. If the default export is not a
@@ -9,19 +10,18 @@ import { formatTokens, nowUtcSnipFormat, savingsSince } from "./stats"
 // every runtime export and treats each one as a plugin. Keep this entry to a
 // single default export; import library helpers from their own modules.
 
-const SmartSnipPlugin: Plugin = async ({ $, client, directory }) => {
+const SmartSnipPlugin: Plugin = async ({ client, directory }) => {
   // POSIX parser — PowerShell/native Windows is a non-goal for now
   if (process.platform === "win32") return {}
 
   const config = loadConfig(directory)
   if (!config.enabled) return {}
 
-  try {
-    await $`command -v ${config.snipPath}`.quiet()
-  } catch {
+  if (!resolveSnip(config.snipPath)) {
     console.warn(
       `[smartsnip] '${config.snipPath}' not found in PATH — plugin disabled. ` +
-        "Install: brew install edouard-claude/tap/snip",
+        "Install: brew install edouard-claude/tap/snip, " +
+        "or go install github.com/edouard-claude/snip@latest",
     )
     return {}
   }

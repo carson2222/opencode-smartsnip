@@ -14,10 +14,13 @@
 
 ## For agents running under this plugin
 
-- Output of filtered commands is compressed but information-preserving.
-- If a command output contains `[full output: /path/to/file.log]`, the raw
-  uncompressed output is in that file — Read it instead of re-running the command.
-- Append `#nosnip` to any bash command to get its full raw output.
+- Output of filtered commands is condensed and lines are dropped. It is not
+  information-preserving — treat it as a summary, not the full output.
+- If a command output contains `[full output: /path/to/file.log]`, Read that file
+  instead of re-running the command. snip only writes it when tee is enabled, skips
+  outputs under 500 bytes, cuts the file at 1 MiB and keeps only the 20 most recent.
+- Append `#nosnip` to any bash command when you need its full raw output. That is the
+  only way to be certain nothing was dropped.
 - `git log --format=...`, `git status --porcelain` etc. are never filtered — explicit
   format flags are respected.
 
@@ -26,9 +29,11 @@
 - README.md — install, configuration, design
 - src/parser.ts — shell-aware top-level splitter
 - src/router.ts — wrap decision logic
-- src/filters.ts + src/builtin-filters.ts — allowlist from snip's filter table
-- bin/smartsnip.ts — `smartsnip discover` (missed-savings report from opencode
-  history) and `smartsnip doctor` (setup verification)
+- src/filters.ts + src/builtin-filters.ts — allowlist generated from snip v0.25.2's
+  filter table; new user filters need an opencode restart to be routed to
+- src/snip-cli.ts — binary lookup, pinned version, snip's own subcommands
+- bin/smartsnip.ts — `smartsnip discover` (what opencode stored, by category) and
+  `smartsnip doctor` (setup verification)
 
 ## Config
 

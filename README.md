@@ -4,7 +4,7 @@
 
 **Cuts shell-output tokens in opencode.**
 
-Wraps only what [snip](https://github.com/edouard-claude/snip) can filter. Everything else runs byte-identical.
+Routes supported shell commands through [snip](https://github.com/edouard-claude/snip). Uncertain commands run unchanged.
 
 [![npm version](https://img.shields.io/npm/v/opencode-smartsnip?style=flat-square&logo=npm&color=cb3837)](https://www.npmjs.com/package/opencode-smartsnip)
 [![npm downloads](https://img.shields.io/npm/dm/opencode-smartsnip?style=flat-square&color=cb3837)](https://www.npmjs.com/package/opencode-smartsnip)
@@ -96,9 +96,16 @@ flowchart LR
     E -- yes --> W([prefix with snip])
 ```
 
-The allowlist comes from snip's own filters (131 built-in, plus anything you drop in
-`~/.config/snip/filters/`). `exclude_flags` and `require_flags` are honored, so
-`git log --format=...` stays raw. `#nosnip` anywhere in a command skips the whole thing.
+The allowlist is generated from snip's own filters, pinned to the v0.25.2 release (132
+files, 173 command/subcommand rules), plus anything you drop in `~/.config/snip/filters/`.
+`exclude_flags` and `require_flags` are matched the way snip matches them — against every
+argument, flag or not — so `git log --format=...`, `git diff -p` and `gh pr diff` all stay
+raw, and `npm install` wraps while `npm view` does not. `#nosnip` anywhere in a command
+skips the whole thing.
+
+Filters are read once at startup. A new file in `~/.config/snip/filters/` needs an
+opencode restart before smartsnip routes to it. `smartsnip doctor` reports your installed
+snip version and warns when it differs from the release the table was generated from.
 
 A wrong passthrough costs a few tokens. A wrong wrap breaks a command. The bias follows.
 
@@ -131,7 +138,7 @@ any of them back.
 ## Getting raw output back
 
 snip can tee the original to a local file and append `[full output: /path.log]` to the
-filtered result. The agent already has a Read tool, so nothing is ever lost. In
+filtered result, which the agent can then Read instead of re-running the command. In
 `~/.config/snip/config.toml`:
 
 ```toml
@@ -139,7 +146,16 @@ filtered result. The agent already has a Read tool, so nothing is ever lost. In
 mode = "always"
 ```
 
-`smartsnip doctor` checks this, along with the rest of your setup.
+tee recovers most output, not all of it. On snip 0.25.2 the defaults are:
+
+- outputs under 500 bytes are not saved at all
+- files are capped at 1 MiB; anything past that is cut
+- only the 20 most recent files are kept, so a busy session drops its own older ones
+
+So treat tee as a good chance of recovery, not a guarantee. When the full output actually
+matters, `#nosnip` is the reliable answer.
+
+`smartsnip doctor` checks the tee mode, along with the rest of your setup.
 
 One line in `AGENTS.md` makes agents use it well:
 
@@ -157,20 +173,27 @@ bunx opencode-smartsnip discover --days 30
 Replays your real opencode bash history (read-only, local) through the router:
 
 ```
-2106 commands, ~893.5k tokens of raw output
+2106 commands, ~893.5k est. tokens of stored output.
 
-FILTERED by snip:
+RAN UNDER SNIP (stored output is post-filter):
   git        418 calls   182.4k est. tokens
+
+WRAP-ELIGIBLE, RAN RAW (routing would wrap these today):
   pnpm       184 calls   164.7k est. tokens
 
-NO FILTER (biggest missed savings first):
+NO FILTER IN SNIP (largest stored output first):
   python3     49 calls    73.2k est. tokens
-  agent-browser 83 calls  33.2k est. tokens
 ```
 
-A snip filter is ~10 lines of YAML. `bunx opencode-smartsnip install-command` adds a
-`/snip-filter` command that writes and tests one for you — say `/snip-filter python3`
-and the new filter is picked up automatically.
+Every number is what opencode stored, so entries that already ran under snip are counted
+after filtering. Nothing here is a measured saving, and a large number is a place to look,
+not a filter worth writing. Pipelines, `#nosnip` calls and unparseable commands are
+reported on their own lines because their stored output says nothing about the command's
+own filter.
+
+For an actual measurement, `bun scripts/measure-savings.ts` replays stored output through
+the real snip filters. `bunx opencode-smartsnip install-command` adds a `/snip-filter`
+command that writes and tests a new filter for you.
 
 ## Why not wrap everything?
 
@@ -186,8 +209,9 @@ it's where this project started. The failure modes are all known issues there:
 | heredocs | [#6](https://github.com/VincentHardouin/opencode-snip/issues/6) | detected, passthrough |
 | permission rules see rewritten commands | [#7](https://github.com/VincentHardouin/opencode-snip/issues/7) | only filterable commands change |
 
-The router is validated against 23k+ real bash commands from actual opencode sessions —
-65% of calls still get filtered, with none of the breakage.
+The router is validated against a fixed corpus of 23k+ real bash commands from actual
+opencode sessions. Its wrap decisions were also checked against `snip check` on the pinned
+release; runtime verification remains the authority for commands outside that corpus.
 
 ¹ One feedback loop is unavoidable at this layer: opencode stores the *rewritten*
 command, so agents start typing `snip` themselves — sometimes on things snip can't
@@ -202,7 +226,7 @@ the rare command too complex to parse, set `quiet_no_filter = true` under `[disp
 bun install
 bun test                  # includes a replay of 656 sanitized real-world commands
 bun run typecheck
-bun run generate:filters  # re-sync allowlist from upstream snip filters
+bun run generate:filters  # re-sync allowlist from the pinned upstream snip release
 bun run measure --days 7  # replay your real bash history through snip (the Numbers)
 ```
 

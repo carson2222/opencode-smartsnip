@@ -26,15 +26,15 @@ function makeDb(): string {
 }
 
 describe("savingsSince", () => {
-  test("sums rows at/after the cutoff", () => {
+  test("sums rows at/after the cutoff", async () => {
     const db = makeDb()
-    expect(savingsSince("2026-01-01 00:00:00", db)).toEqual({ commands: 2, savedTokens: 770 })
-    expect(savingsSince("2026-01-02 00:00:00", db)).toEqual({ commands: 1, savedTokens: 680 })
-    expect(savingsSince("2026-01-03 00:00:00", db)).toEqual({ commands: 0, savedTokens: 0 })
+    expect(await savingsSince("2026-01-01 00:00:00", db)).toEqual({ commands: 2, savedTokens: 770 })
+    expect(await savingsSince("2026-01-02 00:00:00", db)).toEqual({ commands: 1, savedTokens: 680 })
+    expect(await savingsSince("2026-01-03 00:00:00", db)).toEqual({ commands: 0, savedTokens: 0 })
   })
 
-  test("fails soft on missing db", () => {
-    expect(savingsSince("2026-01-01 00:00:00", "/nonexistent/tracking.db")).toBeNull()
+  test("fails soft on missing db", async () => {
+    expect(await savingsSince("2026-01-01 00:00:00", "/nonexistent/tracking.db")).toBeNull()
   })
 })
 

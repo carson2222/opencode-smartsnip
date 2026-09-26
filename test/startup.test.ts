@@ -114,6 +114,43 @@ describe("startup probe", () => {
     expect(notBash.args.command).toBe("git status")
   })
 
+  test("v2 shell hook rewrites only string commands and keeps other input fields", async () => {
+    makeStub(stubDir, "snip")
+    process.env["PATH"] = stubDir
+    const dir = project()
+    dirs.push(dir)
+
+    let before: ((event: { tool: string; input: unknown }) => void) | undefined
+    await plugin.setup({
+      location: { directory: dir },
+      tool: {
+        hook: async (name, callback) => {
+          expect(name).toBe("execute.before")
+          before = callback
+          return { dispose: async () => {} }
+        },
+      },
+    })
+    if (!before) throw new Error("hook was not registered")
+
+    const shell = { tool: "shell", input: { command: "git status", workdir: dir, timeout: 123 } }
+    before(shell)
+    expect(shell.input).toEqual({ command: "snip git status", workdir: dir, timeout: 123 })
+
+    const other = { tool: "read", input: { command: "git status" } }
+    before(other)
+    expect(other.input.command).toBe("git status")
+
+    const invalid = { tool: "shell", input: { command: 42 } }
+    before(invalid)
+    expect(invalid.input.command).toBe(42)
+
+    const unchanged = { tool: "shell", input: { command: "npm view react version" } }
+    const original = unchanged.input
+    before(unchanged)
+    expect(unchanged.input).toBe(original)
+  })
+
   test("a disabled plugin registers no hooks at all", async () => {
     makeStub(stubDir, "snip")
     process.env["PATH"] = stubDir
@@ -121,5 +158,11 @@ describe("startup probe", () => {
     dirs.push(dir)
 
     expect(await start(dir)).toEqual({})
+    let registered = false
+    await plugin.setup({
+      location: { directory: dir },
+      tool: { hook: async () => { registered = true } },
+    })
+    expect(registered).toBe(false)
   })
 })

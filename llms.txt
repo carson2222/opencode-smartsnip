@@ -5,8 +5,9 @@
 
 ## What it does
 
-- Hooks `tool.execute.before` for the bash tool and rewrites wrap-eligible commands
-  from `git status` to `snip git status` before execution.
+- Rewrites wrap-eligible shell commands from `git status` to `snip git status`
+  before execution. Works in the opencode CLI, Desktop, and 2.x (1.x hooks
+  `tool.execute.before` on `bash`, 2.x hooks `execute.before` on `shell`).
 - snip (https://github.com/edouard-claude/snip) filters the output (measured -72% on git, -48% on pnpm) before it
   enters the session.
 - Anything uncertain (heredocs, control flow, `$( )`, pipes-downstream, unknown

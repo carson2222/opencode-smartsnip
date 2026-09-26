@@ -10,10 +10,11 @@ describe("plugin entry — opencode load contract", () => {
     expect(Object.keys(entry)).toEqual(["default"])
   })
 
-  test("default export has an id and server plugin", () => {
+  test("default export has an id and both plugin APIs", () => {
     expect(entry.default).toEqual({
       id: "opencode-smartsnip",
       server: expect.any(Function),
+      setup: expect.any(Function),
     })
   })
 })

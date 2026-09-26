@@ -19,26 +19,34 @@ export function defaultTrackingDbPath(): string {
  * Total snip savings recorded at or after `sinceUtcIso` (snip stores UTC
  * `datetime('now')` strings, e.g. "2026-06-09 21:36:38").
  */
-export function savingsSince(
+export async function savingsSince(
   sinceUtcIso: string,
   dbPath = defaultTrackingDbPath(),
-): Savings | null {
+): Promise<Savings | null> {
   try {
     if (!existsSync(dbPath)) return null
-    // bun:sqlite is built into the Bun runtime opencode plugins run under
-    const { Database } = require("bun:sqlite") as typeof import("bun:sqlite")
-    const db = new Database(dbPath, { readonly: true })
-    try {
-      const row = db
-        .query(
-          "SELECT COUNT(*) AS commands, COALESCE(SUM(saved_tokens), 0) AS savedTokens FROM commands WHERE timestamp >= ?",
-        )
-        .get(sinceUtcIso) as { commands: number; savedTokens: number } | undefined
-      if (!row) return null
-      return { commands: row.commands, savedTokens: row.savedTokens }
-    } finally {
-      db.close()
+    const query = "SELECT COUNT(*) AS commands, COALESCE(SUM(saved_tokens), 0) AS savedTokens FROM commands WHERE timestamp >= ?"
+    let row: unknown
+    if ("Bun" in globalThis) {
+      const { Database } = await import("bun:sqlite")
+      const db = new Database(dbPath, { readonly: true })
+      try {
+        row = db.query(query).get(sinceUtcIso)
+      } finally {
+        db.close()
+      }
+    } else {
+      const { DatabaseSync } = await import("node:sqlite")
+      const db = new DatabaseSync(dbPath, { readOnly: true })
+      try {
+        row = db.prepare(query).get(sinceUtcIso)
+      } finally {
+        db.close()
+      }
     }
+    if (typeof row !== "object" || row === null || !("commands" in row) || !("savedTokens" in row)) return null
+    if (typeof row.commands !== "number" || typeof row.savedTokens !== "number") return null
+    return { commands: row.commands, savedTokens: row.savedTokens }
   } catch {
     return null
   }

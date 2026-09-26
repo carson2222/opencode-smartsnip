@@ -44,15 +44,17 @@ brew install edouard-claude/tap/snip
 
 That's it. No new tools, no prompt overhead. If snip isn't on PATH the plugin
 disables itself with a warning, so it's safe in a shared repo config.
+Works in the opencode CLI, Desktop, and opencode 2.x.
 
 <details>
 <summary>Install from source instead</summary>
 
 ```bash
 git clone https://github.com/carson2222/opencode-smartsnip.git
+cd opencode-smartsnip && bun run build
 mkdir -p ~/.config/opencode/plugins
-printf 'export { default } from "%s/src/index"\n' "$PWD/opencode-smartsnip" \
-  > ~/.config/opencode/plugins/smartsnip.ts
+printf 'export { default } from "%s/dist/index.js"\n' "$PWD" \
+  > ~/.config/opencode/plugins/smartsnip.js
 ```
 
 </details>
@@ -125,7 +127,7 @@ Optional. `~/.config/opencode/smartsnip.json`, overridable per project in
 
 - `deny` — never wrap these (`"cmd"` or `"cmd subcommand"`)
 - `allow` — force wrap-eligibility, wins over deny
-- `toast` — once per session, a small TUI toast with tokens saved
+- `toast` — once per session, a small TUI toast with tokens saved (opencode 1.x only)
 - `stripMimicry` — strip stray `snip` prefixes the agent picked up from history
   before re-deciding (default on). Turn off only if you wrap commands via snip
   filter dirs that smartsnip doesn't scan
@@ -226,6 +228,8 @@ the rare command too complex to parse, set `quiet_no_filter = true` under `[disp
 bun install
 bun test                  # includes a replay of 656 sanitized real-world commands
 bun run typecheck
+bun run build
+bun run smoke:node
 bun run generate:filters  # re-sync allowlist from the pinned upstream snip release
 bun run measure --days 7  # replay your real bash history through snip (the Numbers)
 ```

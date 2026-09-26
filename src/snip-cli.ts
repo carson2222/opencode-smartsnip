@@ -1,3 +1,7 @@
+import { spawnSync } from "node:child_process"
+import { accessSync, constants, statSync } from "node:fs"
+import { delimiter, resolve } from "node:path"
+
 export const PINNED_SNIP_VERSION = "0.25.2"
 
 export const SNIP_NATIVE_SUBCOMMANDS = new Set([
@@ -6,16 +10,34 @@ export const SNIP_NATIVE_SUBCOMMANDS = new Set([
   "inspect",
 ])
 
+function isExecutableFile(file: string): boolean {
+  try {
+    accessSync(file, constants.X_OK)
+    return statSync(file).isFile()
+  } catch {
+    return false
+  }
+}
+
 export function resolveSnip(snipPath: string): string | null {
-  // Explicit PATH reflects runtime changes; Bun.which otherwise uses its startup snapshot.
-  return Bun.which(snipPath, { PATH: process.env["PATH"] ?? "" })
+  if (!snipPath) return null
+  if (snipPath.includes("/")) {
+    const file = resolve(snipPath)
+    return isExecutableFile(file) ? file : null
+  }
+  for (const dir of (process.env["PATH"] ?? "").split(delimiter)) {
+    if (!dir) continue
+    const file = resolve(dir, snipPath)
+    if (isExecutableFile(file)) return file
+  }
+  return null
 }
 
 export function snipVersion(resolved: string): string | null {
   try {
-    const r = Bun.spawnSync([resolved, "--version"], { stderr: "ignore" })
-    if (r.exitCode !== 0) return null
-    return r.stdout.toString().match(/\d+\.\d+\.\d+/)?.[0] ?? null
+    const r = spawnSync(resolved, ["--version"], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] })
+    if (r.status !== 0) return null
+    return r.stdout.match(/\d+\.\d+\.\d+/)?.[0] ?? null
   } catch {
     return null
   }

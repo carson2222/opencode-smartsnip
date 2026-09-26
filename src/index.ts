@@ -1,21 +1,25 @@
-import type { Plugin, PluginModule } from "@opencode-ai/plugin"
+import type { Plugin } from "@opencode-ai/plugin"
 import { loadConfig } from "./config"
 import { buildMatchTable } from "./filters"
 import { rewrite } from "./router"
 import { resolveSnip } from "./snip-cli"
 import { formatTokens, nowUtcSnipFormat, savingsSince } from "./stats"
 
-// Use opencode's V1 plugin module shape. If the default export is not a
-// `{ id, server }` object, opencode falls back to its legacy loader, which walks
-// every runtime export and treats each one as a plugin. Keep this entry to a
-// single default export; import library helpers from their own modules.
+interface ShellEvent {
+  tool: string
+  input: unknown
+}
 
-const SmartSnipPlugin: Plugin = async ({ client, directory }) => {
+interface PluginContextV2 {
+  location: { directory: string }
+  tool: { hook: (name: "execute.before", callback: (event: ShellEvent) => void) => Promise<unknown> }
+}
+
+function init(directory: string) {
   // POSIX parser — PowerShell/native Windows is a non-goal for now
-  if (process.platform === "win32") return {}
-
+  if (process.platform === "win32") return null
   const config = loadConfig(directory)
-  if (!config.enabled) return {}
+  if (!config.enabled) return null
 
   if (!resolveSnip(config.snipPath)) {
     console.warn(
@@ -23,10 +27,15 @@ const SmartSnipPlugin: Plugin = async ({ client, directory }) => {
         "Install: brew install edouard-claude/tap/snip, " +
         "or go install github.com/edouard-claude/snip@latest",
     )
-    return {}
+    return null
   }
+  return { config, table: buildMatchTable(config) }
+}
 
-  const table = buildMatchTable(config)
+const SmartSnipPlugin: Plugin = async ({ client, directory }) => {
+  const state = init(directory)
+  if (!state) return {}
+  const { config, table } = state
 
   // Savings toast state: report once per session, only counting savings
   // accrued after this plugin instance started.
@@ -51,7 +60,7 @@ const SmartSnipPlugin: Plugin = async ({ client, directory }) => {
       const sessionID = (event as { properties?: { sessionID?: string } }).properties?.sessionID
       if (!sessionID || toastedSessions.has(sessionID)) return
 
-      const savings = savingsSince(startedAt)
+      const savings = await savingsSince(startedAt)
       if (!savings || savings.savedTokens <= reportedSavedTokens) return
 
       toastedSessions.add(sessionID)
@@ -72,9 +81,24 @@ const SmartSnipPlugin: Plugin = async ({ client, directory }) => {
   }
 }
 
-const plugin: PluginModule = {
+async function setup(ctx: PluginContextV2): Promise<void> {
+  const state = init(ctx.location.directory)
+  if (!state) return
+  const { config, table } = state
+  await ctx.tool.hook("execute.before", (event) => {
+    if (event.tool !== "shell") return
+    const input = event.input
+    if (typeof input !== "object" || input === null || !("command" in input)) return
+    if (typeof input.command !== "string") return
+    const command = rewrite(input.command, table, config)
+    if (command !== input.command) event.input = { ...input, command }
+  })
+}
+
+const plugin = {
   id: "opencode-smartsnip",
   server: SmartSnipPlugin,
+  setup,
 }
 
 export default plugin

@@ -23,7 +23,8 @@
 - Append `#nosnip` to any bash command when you need its full raw output. That is the
   only way to be certain nothing was dropped.
 - `git log --format=...`, `git status --porcelain` etc. are never filtered — explicit
-  format flags are respected.
+  format flags are respected. So are `--json`, `--jq`, `--template`, `--format json`,
+  `-o json` and `git show REV:path`.
 
 ## Files
 

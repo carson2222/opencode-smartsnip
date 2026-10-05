@@ -102,8 +102,9 @@ The allowlist is generated from snip's own filters, pinned to the v0.25.2 releas
 files, 173 command/subcommand rules), plus anything you drop in `~/.config/snip/filters/`.
 `exclude_flags` and `require_flags` are matched the way snip matches them — against every
 argument, flag or not — so `git log --format=...`, `git diff -p` and `gh pr diff` all stay
-raw, and `npm install` wraps while `npm view` does not. `#nosnip` anywhere in a command
-skips the whole thing.
+raw, and `npm install` wraps while `npm view` does not. Output another program parses also
+stays raw: `--json`, `--jq`, `--template`, `--format json`, `-o json`, and `git show REV:path`
+file contents. `#nosnip` anywhere in a command skips the whole thing.
 
 Filters are read once at startup. A new file in `~/.config/snip/filters/` needs an
 opencode restart before smartsnip routes to it. `smartsnip doctor` reports your installed

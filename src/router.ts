@@ -63,6 +63,18 @@ function isDenied(info: SegmentInfo, config: SmartSnipConfig): boolean {
   )
 }
 
+const DATA_FLAGS = ["--json", "--jq", "--template"]
+const FORMAT_FLAGS = ["--format", "--output", "-o"]
+
+/** Output another program will parse, or file contents (`git show REV:path`), must stay verbatim. */
+function isDataOutput(info: SegmentInfo): boolean {
+  const args = info.tokens.slice(1).map((a) => a.replace(/^(['"])(.*)\1$/, "$2"))
+  if (args.some((a) => DATA_FLAGS.some((flag) => a === flag || a.startsWith(`${flag}=`)))) return true
+  if (args.some((a, i) => FORMAT_FLAGS.some((flag) => a === `${flag}=json` || (a === flag && args[i + 1] === "json"))))
+    return true
+  return info.head === "git" && args[0] === "show" && args.some((a) => !a.startsWith("-") && a.includes(":"))
+}
+
 /** Decide whether a single analyzed segment should be wrapped with snip. */
 export function shouldWrap(
   segment: string,
@@ -76,6 +88,7 @@ export function shouldWrap(
   if (BUILTINS.has(info.head)) return null
   if (info.body.startsWith("(") || info.body.startsWith("{")) return null // subshell/group
 
+  if (isDataOutput(info)) return null
   const entry = table.get(info.head)
   if (!entry) return null
   if (!matchesEntry(entry, info)) return null

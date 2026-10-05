@@ -38,6 +38,17 @@ describe("basic wrapping", () => {
     expect(rw("bun run format")).toBe("bun run format")
   })
 
+  test("machine-readable output passes through verbatim", () => {
+    expect(rw("gh pr list --json number,title")).toBe("gh pr list --json number,title")
+    expect(rw("gh pr view 12 --jq .title")).toBe("gh pr view 12 --jq .title")
+    expect(rw("gh run list --template '{{.name}}'")).toBe("gh run list --template '{{.name}}'")
+    expect(rw(`gh pr list "--json" number,title`)).toBe(`gh pr list "--json" number,title`)
+    expect(rw(`gh pr list '--json=number,title'`)).toBe(`gh pr list '--json=number,title'`)
+    expect(rw("docker ps --format json")).toBe("docker ps --format json")
+    expect(rw("git show origin/main:src/app.ts")).toBe("git show origin/main:src/app.ts")
+    expect(rw("git show HEAD")).toBe("snip git show HEAD")
+  })
+
   test("builtins never wrapped (issue #6)", () => {
     expect(rw("cd /tmp")).toBe("cd /tmp")
     expect(rw("source .venv/bin/activate")).toBe("source .venv/bin/activate")
